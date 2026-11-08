@@ -1,0 +1,28 @@
+<script id="zmWorldReverb">
+/* zombies reverb: every in-world sound gets a reverb send while zombies mode is on.
+   Footsteps keep their own level (Sound.setStepReverb); UI / HUD / hit sounds stay dry.
+   Tune live from the console: Sound.setWorldReverb(0.5)   (0 = off) */
+(function () {
+  if (typeof Sound === 'undefined' || Sound.__zmWorldReverb) return;
+  Sound.__zmWorldReverb = true;
+  var WORLD_REVERB = 0.35;
+  var DRY = /^(ui_|hit_|kill|countdown|match_end|spawn$|pickup_|step_)/;
+  var zm = function () { return !!document.body && document.body.classList.contains('zmOnly'); };
+  var wet = function (o) { return o && o.reverb !== undefined ? o : Object.assign({}, o, { reverb: WORLD_REVERB }); };
+  var play = Sound.play, weapon = Sound.weapon, crawl = Sound.crawl;
+  Sound.play = function (name, o) {
+    if (WORLD_REVERB > 0 && zm() && typeof name === 'string' && !DRY.test(name) && o &&
+        (o.pos || (o.isPlayer && !/^(hurt|death)$/.test(name)))) o = wet(o);
+    return play.call(Sound, name, o);
+  };
+  Sound.weapon = function (id, ev, o) {
+    if (WORLD_REVERB > 0 && zm()) o = wet(o || {});
+    return weapon.call(Sound, id, ev, o);
+  };
+  Sound.crawl = function (key, on, o) {
+    if (on && WORLD_REVERB > 0 && zm()) o = wet(o || {});
+    return crawl.call(Sound, key, on, o);
+  };
+  Sound.setWorldReverb = function (v) { WORLD_REVERB = Math.max(0, Math.min(2, +v || 0)); };
+})();
+</script>
