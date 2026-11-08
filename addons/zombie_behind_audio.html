@@ -1,0 +1,182 @@
+<script>
+/* ===== addons/zombie_behind_audio.html =====
+   Spatial "zombie behind you" groans.
+   - Plays one of behind1..behind5.wav from a zombie while it is behind the player (more than ~100 deg off where the camera looks).
+   - True 3D: every voice is a Web Audio PannerNode (HRTF), positioned at the zombie's head and moved every frame, with the AudioListener
+     following the camera. Use headphones for the full effect. Distance rolloff is built in, and a zombie with no clear line to you is muffled.
+   - Self-contained: it only reads Game / Sound / THREE, and runs on its own timer, so no game chunk had to be edited.
+   - build.py injects this block just before the boot script and replaces the ZBA_SOUNDS placeholder below with the base64 of
+     addons/sounds/behind*.wav.
+   Console helpers: ZombieBehindAudio.test() plays a groan 4 m behind you, ZombieBehindAudio.sweep() circles one around your head,
+   ZombieBehindAudio.cfg holds the tunables, ZombieBehindAudio.debug = true logs every groan. */
+(function () {
+  'use strict';
+  const SRC = /*ZBA_SOUNDS*/[];
+  const CFG = {
+    maxDist: 24,        /* m: a zombie farther than this never starts a groan */
+    minDist: 0.6,
+    behindCos: -0.2,    /* dot(camera forward, direction to zombie) below this = behind you (about 100 deg off the nose) */
+    dwell: 0.3,         /* s a zombie must stay behind you before it may groan (no groans for a zombie that just flicks past) */
+    cdMin: 3.0, cdMax: 7.5,   /* s of quiet after a groan has finished, per zombie (random in this range) */
+    gapGlobal: 0.8,     /* s between any two new groans, so a horde does not all talk at once */
+    maxVoices: 3,
+    gain: 1.0,
+    ref: 2.0, rolloff: 1.3, headY: 1.55,   /* PannerNode inverse distance model: full level inside ref metres, then rolls off */
+    muffleHz: 1500      /* low-pass cutoff when a wall is between the zombie and you */
+  };
+  const TICK = 0.1;
+  const clips = [], voices = [], state = new WeakMap();
+  let ctx = null, bus = null, loadP = null, lastIdx = -1, lastGroan = -9, acc = 0, lastT = 0, fwdX = 0, fwdZ = -1, T = 0;
+  const api = { cfg: CFG, debug: false, clips: clips, voices: voices };
+  let _p = null, _d = null;
+
+  function log() { if (api.debug) console.log.apply(console, ['[zombie behind]'].concat([].slice.call(arguments))); }
+  const rr = (a, b) => a + Math.random() * (b - a);
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+  /* ---- load: decode the embedded WAVs once the game's AudioContext exists ---- */
+  function decode(b64) {
+    const bin = atob(b64), u8 = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    return new Promise((res, rej) => { const p = ctx.decodeAudioData(u8.buffer, res, rej); if (p && p.catch) p.catch(rej); });
+  }
+  function load() {
+    if (loadP) return loadP;
+    if (!SRC.length) { console.warn('[zombie behind] no sounds were embedded: put behind1..5.wav in addons/sounds/ and run build.py'); return (loadP = Promise.resolve()); }
+    loadP = (async () => {
+      for (const s of SRC) {
+        try {
+          const b = await decode(s), d = b.getChannelData(0); let pk = 0;
+          for (let i = 0; i < d.length; i += 4) { const v = Math.abs(d[i]); if (v > pk) pk = v; }
+          b._zbaGain = clamp(0.85 / (pk || 1), 0.5, 4);   /* the clips differ in level: normalise their peaks */
+          clips.push(b);
+        } catch (e) { console.warn('[zombie behind] a sound failed to decode', e); }
+      }
+      log('loaded', clips.length, 'clips');
+    })();
+    return loadP;
+  }
+  function ensureBus() {
+    if (bus) return true;
+    try {
+      bus = ctx.createGain(); bus.gain.value = 0.8;
+      const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -8; comp.knee.value = 10; comp.ratio.value = 4; comp.attack.value = 0.003; comp.release.value = 0.15;
+      bus.connect(comp); comp.connect(ctx.destination); return true;
+    } catch (e) { bus = null; return false; }
+  }
+
+  /* ---- listener = the camera ---- */
+  function setP(n, x, y, z) { if (n.positionX) { n.positionX.value = x; n.positionY.value = y; n.positionZ.value = z; } else n.setPosition(x, y, z); }
+  function updateListener() {
+    const cam = Game.camera; if (!cam || !window.THREE) return false;
+    if (!_p) { _p = new THREE.Vector3(); _d = new THREE.Vector3(); }
+    cam.getWorldPosition(_p); cam.getWorldDirection(_d);
+    const L = ctx.listener;
+    if (L.positionX) { L.positionX.value = _p.x; L.positionY.value = _p.y; L.positionZ.value = _p.z; L.forwardX.value = _d.x; L.forwardY.value = _d.y; L.forwardZ.value = _d.z; L.upX.value = 0; L.upY.value = 1; L.upZ.value = 0; }
+    else { L.setPosition(_p.x, _p.y, _p.z); L.setOrientation(_d.x, _d.y, _d.z, 0, 1, 0); }
+    const h = Math.hypot(_d.x, _d.z); if (h > 0.2) { fwdX = _d.x / h; fwdZ = _d.z / h; }   /* looking straight up / down keeps the last heading */
+    return true;
+  }
+
+  /* ---- a voice ---- */
+  function fade(v, tc) { try { const t = ctx.currentTime; v.g.gain.setTargetAtTime(0, t, tc || 0.05); v.src.stop(t + (tc || 0.05) * 5); } catch (e) { } }
+  function start(buf, x, y, z, ent, o) {
+    o = o || {};
+    const src = ctx.createBufferSource(); src.buffer = buf; src.playbackRate.value = o.rate || rr(0.94, 1.06);
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 20000; lp.Q.value = 0.5;
+    const g = ctx.createGain(); g.gain.value = (buf._zbaGain || 1) * CFG.gain * (o.gain || 1);
+    const pan = ctx.createPanner(); pan.panningModel = 'HRTF'; pan.distanceModel = 'inverse'; pan.refDistance = CFG.ref; pan.maxDistance = 100; pan.rolloffFactor = CFG.rolloff; pan.coneInnerAngle = 360;
+    setP(pan, x, y, z);
+    src.connect(lp); lp.connect(g); g.connect(pan); pan.connect(bus);
+    const v = { src, lp, g, pan, ent: ent || null, occl: false, dur: buf.duration / src.playbackRate.value };
+    voices.push(v);
+    src.onended = () => { const i = voices.indexOf(v); if (i >= 0) voices.splice(i, 1); try { src.disconnect(); lp.disconnect(); g.disconnect(); pan.disconnect(); } catch (e) { } if (v.ent) { const s = state.get(v.ent); if (s) s.voice = null; } };
+    src.start();
+    return v;
+  }
+  function pickClip() {
+    if (!clips.length) return null; let i;
+    if (clips.length === 1) i = 0; else { do { i = (Math.random() * clips.length) | 0; } while (i === lastIdx); }
+    lastIdx = i; return clips[i];
+  }
+  function occluded(px, py, pz, ex, ey, ez) {
+    try { const W = Game.world; if (W && W.clearLine) return !W.clearLine(px, py, pz, ex, ey, ez); } catch (e) { }
+    return false;
+  }
+
+  /* ---- per frame: keep voices on their zombies; every TICK s decide who groans ---- */
+  function followVoices() {
+    for (let i = voices.length - 1; i >= 0; i--) {
+      const v = voices[i], e = v.ent; if (!e) continue;
+      if (!e.alive || !e.pos) { fade(v, 0.06); v.ent = null; continue; }   /* the zombie died: cut the groan */
+      setP(v.pan, e.pos.x, e.pos.y + CFG.headY, e.pos.z);
+    }
+  }
+  function decide() {
+    const G = Game, P = G.player, ents = G.entities;
+    if (!P || !P.alive || !ents) return;
+    if (G.matchOver || (G.phase && G.phase !== 'playing')) return;
+    if (!clips.length || voices.length >= CFG.maxVoices || T - lastGroan < CFG.gapGlobal) return;
+    const cx = _p.x, cy = _p.y, cz = _p.z; let best = null, bd = 1e9;
+    for (let i = 0; i < ents.length; i++) {
+      const e = ents[i]; if (!(e.zombie || e.zproxy) || !e.alive || !e.pos) continue;
+      let s = state.get(e); if (!s) { s = { behind: 0, next: T + rr(0.3, 2.0), voice: null }; state.set(e, s); }
+      const dx = e.pos.x - cx, dz = e.pos.z - cz, dy = e.pos.y + CFG.headY - cy, d = Math.sqrt(dx * dx + dy * dy + dz * dz), h = Math.hypot(dx, dz) || 1;
+      const isBehind = d >= CFG.minDist && d <= CFG.maxDist && (dx * fwdX + dz * fwdZ) / h < CFG.behindCos;
+      if (!isBehind) { s.behind = 0; continue; }
+      s.behind += TICK;
+      if (s.behind < CFG.dwell || T < s.next || s.voice) continue;
+      if (d < bd) { bd = d; best = e; }   /* nearest eligible zombie goes first */
+    }
+    if (!best) return;
+    const buf = pickClip(), s = state.get(best); if (!buf) return;
+    const v = start(buf, best.pos.x, best.pos.y + CFG.headY, best.pos.z, best, {});
+    s.voice = v; s.next = T + v.dur + rr(CFG.cdMin, CFG.cdMax); lastGroan = T;
+    log('groan', lastIdx + 1, 'at', bd.toFixed(1) + ' m');
+  }
+  function muffle() {
+    const cx = _p.x, cy = _p.y, cz = _p.z;
+    for (const v of voices) {
+      if (!v.ent) continue; const p = v.ent.pos, o = occluded(cx, cy, cz, p.x, p.y + CFG.headY, p.z);
+      if (o !== v.occl) { v.occl = o; try { v.lp.frequency.setTargetAtTime(o ? CFG.muffleHz : 20000, ctx.currentTime, 0.08); } catch (e) { } }
+    }
+  }
+  function frame(t) {
+    requestAnimationFrame(frame);
+    const dt = lastT ? Math.min(0.25, (t - lastT) / 1000) : 0.016; lastT = t; T += dt;
+    try {
+      if (typeof Sound === 'undefined' || typeof Game === 'undefined' || !Sound.ready || !Sound.ctx) return;
+      if (!ctx) { ctx = Sound.ctx; }
+      if (!loadP) load();
+      if (!ensureBus() || !updateListener()) return;
+      if (ctx.state !== 'running') return;
+      { const vol = (Game.settings && Game.settings.volume != null) ? +Game.settings.volume : 0.8; bus.gain.setTargetAtTime(clamp(vol, 0, 1), ctx.currentTime, 0.05); }
+      followVoices();
+      if ((Game.matchOver || (Game.phase && ['playing', 'countdown', 'paused'].indexOf(Game.phase) < 0)) && voices.length) { for (const v of voices) fade(v, 0.1); }
+      acc += dt; if (acc >= TICK) { acc = 0; decide(); muffle(); }
+    } catch (e) { if (!api.err) { api.err = e; console.warn('[zombie behind]', e); } }
+  }
+
+  /* ---- console helpers ---- */
+  api.test = function (dist, azimuthDeg) {
+    if (!ctx || !clips.length || !updateListener()) return 'audio not ready yet (start a match first)';
+    dist = dist || 4; const a = (azimuthDeg === undefined ? 180 : azimuthDeg) * Math.PI / 180;   /* 0 = straight ahead, 90 = right, 180 = behind */
+    const rx = -fwdZ, rz = fwdX;   /* right of the camera on the ground plane */
+    const x = _p.x + (fwdX * Math.cos(a) + rx * Math.sin(a)) * dist, z = _p.z + (fwdZ * Math.cos(a) + rz * Math.sin(a)) * dist;
+    start(pickClip(), x, _p.y, z, null, {}); return 'groan ' + dist + ' m at ' + (azimuthDeg === undefined ? 180 : azimuthDeg) + ' deg';
+  };
+  api.sweep = function (secs, dist) {
+    if (!ctx || !clips.length || !updateListener()) return 'audio not ready yet (start a match first)';
+    secs = secs || 6; dist = dist || 3; const buf = pickClip(), v = start(buf, _p.x, _p.y, _p.z, null, {}), t0 = performance.now(), cx = _p.x, cz = _p.z, cy = _p.y;
+    const rx = -fwdZ, rz = fwdX, f0x = fwdX, f0z = fwdZ;
+    (function step() {
+      const u = (performance.now() - t0) / 1000 / secs; if (u >= 1 || voices.indexOf(v) < 0) return;
+      const a = u * Math.PI * 2;   /* starts in front, goes round to the right, behind, left */
+      setP(v.pan, cx + (f0x * Math.cos(a) + rx * Math.sin(a)) * dist, cy, cz + (f0z * Math.cos(a) + rz * Math.sin(a)) * dist); requestAnimationFrame(step);
+    })();
+    return 'sweeping one groan around your head';
+  };
+  window.ZombieBehindAudio = api;
+  requestAnimationFrame(frame);
+})();
+</script>
