@@ -10749,7 +10749,7 @@ const Sound = (function () {
   let ctx = null, master = null, ready = false, initP = null, vol = 0.8, ambTimer = 0, ambOn = false;
   /* zombies-mode footstep reverb: a shared convolution bus (revIn) fed by a per-step send. STEP_REVERB = send level (0 = off, ~0.3 subtle, ~0.7 cavernous) */
   let revIn = null, STEP_REVERB = 0.5;
-  /* FORCE_CONCRETE: in zombies mode only (body.zmOnly), every surface-dependent sound (footsteps, jump/land, slide, prone drop, crawl, slide loop, metal/dirt/wood bullet impacts) plays its concrete version, whatever the ground / wall material. Multiplayer keeps per-surface sounds. */
+  /* FORCE_CONCRETE: in zombies mode only (body.zmOnly), every ground-movement sound (footsteps, jump / land, slide, prone drop, crawl, slide loop) plays its concrete version, whatever the ground material. Bullet impacts are NOT affected. Multiplayer keeps per-surface sounds. */
   let FORCE_CONCRETE = true;
   const forceConcrete = () => FORCE_CONCRETE && document.body.classList.contains('zmOnly');
   const B = {}, RAW = {}, loops = {}, voices = [];
@@ -11622,7 +11622,6 @@ const Sound = (function () {
   function play(name, o) {
     if (forceConcrete()) {   /* zombies mode: all surfaces sound like concrete */
       if (name.indexOf('step_') === 0) name = name.replace(/^(step_(?:sprint|walk|stairup_run|stairup_walk|stairdown_run|stairdown_walk))_(?:metal|dirt|tile|wood)_([lr])$/, '$1_concrete_$2').replace(/^step_(?:metal|dirt|tile|wood)_(walk|run)$/, 'step_concrete_$1');
-      else if (/^impact_(?:metal|dirt|wood)(?:_|$)/.test(name)) name = 'impact_concrete';   /* impact_glass is left alone: it is not a surface material */
       if (o && o.surface && o.surface !== 'concrete') o = Object.assign({}, o, { surface: 'concrete' });
     }
     if ((name === 'hit_marker' || name === 'hit_head' || name === 'kill' || name === 'kill_head') && document.body.classList.contains('zmOnly')) return;   /* zombies: no hitmarker / kill / headshot sounds */
