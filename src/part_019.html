@@ -1,0 +1,1053 @@
+      let g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone(); g.applyMatrix4(_pm.multiplyMatrices(_pi, o.matrixWorld));
+      for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal' && k !== 'uv') g.deleteAttribute(k);
+      if (!g.attributes.normal) g.computeVertexNormals(); if (!g.attributes.uv) g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
+      let a = by.get(o.material); if (!a) by.set(o.material, a = []); a.push(g);
+    });
+    const parts = []; by.forEach((geos, mat) => { const mg = THREE.mergeGeometries(geos, false); if (mg) parts.push({ geo: mg, mat }); });
+    m.dispose(); PROTO[pkey] = parts; return parts;
+  }
+  function makePickupObj(pk) {
+    const g = new THREE.Group(), ammo = pk.id === 'ammo'; g.position.set(pk.x, pk.y, pk.z);
+    const ring = new THREE.Mesh(PKV.ring, ammo ? PKV.ringA : pk.dropped ? PKV.ringD : PKV.ringW); ring.position.y = 0.035; ring.renderOrder = 2; ring.frustumCulled = true; g.add(ring);
+    const beam = new THREE.Mesh(PKV.beam, ammo ? PKV.beamA : pk.dropped ? PKV.beamD : PKV.beamW); beam.renderOrder = 2; g.add(beam);
+    let item;
+    if (ammo) { item = new THREE.Mesh(PKV.crate, PKV.crateMat); item.position.y = 0.25; item.castShadow = false; item.receiveShadow = false; }
+    else {
+      item = new THREE.Group(); item.position.y = 0.62;
+      for (const part of pickupProto(pk.id, pk.ws && pk.ws.cfg && pk.ws.cfg.att)) { const mesh = new THREE.Mesh(part.geo, part.mat); mesh.position.z = 0.12; mesh.castShadow = false; mesh.receiveShadow = false; item.add(mesh); }
+    }
+    g.add(item); pk.group = g; pk.item = item; pk.ringM = ring; pk.beamM = beam; G.scene.add(g);
+  }
+  function addPickup(id, x, y, z, dropped, ws) {
+    const pk = { id, x, y, z, active: true, dropped: !!dropped, ws: ws || null, phase: Math.random() * 6.28, born: G.time, expire: dropped ? G.time + 32 : 1e12, respawnT: 0, group: null, item: null, model: null };
+    makePickupObj(pk); G.pickups.push(pk); return pk;
+  }
+  function removePickup(pk) {
+    const i = G.pickups.indexOf(pk); if (i >= 0) G.pickups.splice(i, 1);
+    if (pk.group) { G.scene.remove(pk.group); } if (pk.model) pk.model.dispose(); pk.active = false; pk.group = null;
+  }
+  function clearPickups() { for (let i = G.pickups.length - 1; i >= 0; i--) removePickup(G.pickups[i]); G.pickups.length = 0; }
+  function initMapPickups() { for (const p of G.map.pickups) addPickup(p.id, p.x, p.y, p.z, false, null); }
+  function dropPickup(ws, x, y, z) {
+    if (G.settings.mode === 'gunfight') return null;   /* Gunfight: everyone keeps the round's class, no weapon swaps */
+    if (!ws || ws.cfg.slot === 'melee' || ws.mag + ws.reserve <= 0) return null;
+    let n = 0, oldest = null; for (const p of G.pickups) if (p.dropped) { n++; if (!oldest || p.born < oldest.born) oldest = p; } if (n >= 10 && oldest) removePickup(oldest);
+    const b = G.world.bounds; x = clamp(x, b.minX + 1, b.maxX - 1); z = clamp(z, b.minZ + 1, b.maxZ - 1);
+    ws.reload = null; ws.cycle = null; return addPickup(ws.id, x, G.world.surfaceY(x, z, y + 1.3), z, true, ws);
+  }
+  function updatePickups(dt) {
+    const t = G.time, cp = G.camera.position;
+    for (let i = G.pickups.length - 1; i >= 0; i--) {
+      const pk = G.pickups[i], g = pk.group;
+      if (!pk.active) { if (!pk.dropped) { pk.respawnT -= dt; if (pk.respawnT <= 0) { pk.active = true; if (g) g.visible = true; } } continue; }
+      if (pk.dropped && t > pk.expire) { removePickup(pk); continue; }
+      const dx = pk.x - cp.x, dz = pk.z - cp.z, near = dx * dx + dz * dz < 110 * 110; g.visible = near && !(pk.dropped && pk.expire - t < 6 && ((t * 5) | 0) % 2 === 0); if (!near) continue;
+      const it = pk.item; it.rotation.y = t * 1.15 + pk.phase; if (pk.id !== 'ammo') it.position.y = 0.62 + Math.sin(t * 2 + pk.phase) * 0.06;
+      const s = 1 + 0.07 * Math.sin(t * 3 + pk.phase); pk.ringM.scale.set(s, 1, s); pk.beamM.visible = dx * dx + dz * dz > 16;
+    }
+  }
+  function consume(pk, respawn) { if (pk.dropped) removePickup(pk); else { pk.active = false; pk.respawnT = respawn; if (pk.group) pk.group.visible = false; } }
+  function selOf(s) { const pk = s && Array.isArray(s.perks) ? s.perks : []; return { primary: s.primary, secondary: s.secondary, perks: [String(pk[0] || 'none'), String(pk[1] || 'none'), String(pk[2] || 'none')] }; }
+  function pslot(ent, id) { return ent.isPlayer ? Player.slotFor(Weapons.CFG[id], id) : Weapons.CFG[id].slot; }
+  function usable(ent, pk) {
+    if (!pk.active) return false;
+    if (pk.id === 'ammo') { for (const s of ['primary', 'secondary']) { const w = ent.slots[s]; if (w && w.reserve < w.cfg.reserveMax) return true; } return false; }
+    const cur = ent.slots[pslot(ent, pk.id)]; if (cur && cur.id === pk.id) return cur.reserve < cur.cfg.reserveMax; return true;
+  }
+  const _np = { text: '', sub: '', pk: null };
+  function nearestPickup(ent) {
+    const L = G.pickups, ex = ent.pos.x, ey = ent.pos.y, ez = ent.pos.z; let best = null, bd = 2.2 * 2.2;
+    for (let i = 0; i < L.length; i++) {
+      const pk = L[i]; if (!pk.active) continue; const dx = pk.x - ex, dz = pk.z - ez, d = dx * dx + dz * dz; if (d >= bd || Math.abs(pk.y - ey) > 1.7) continue;
+      if (!usable(ent, pk)) continue; best = pk; bd = d;
+    }
+    if (!best) return null;
+    let cur = null, sl = ''; if (best.id !== 'ammo') { sl = pslot(ent, best.id); cur = ent.slots[sl]; } const key = sl + (cur ? cur.id : '-');
+    if (best._ck !== key) {
+      best._ck = key;
+      if (best.id === 'ammo') { best._t = '[E] TAKE AMMO'; best._s = 'REFILLS ALL RESERVES'; }
+      else { const c = Weapons.CFG[best.id]; if (cur && cur.id === best.id) { best._t = '[E] TAKE AMMO  ' + c.name; best._s = 'SAME WEAPON'; } else { best._t = '[E] PICK UP  ' + c.name; best._s = cur ? 'REPLACES ' + sl.toUpperCase() + '  ' + cur.cfg.name : 'FILLS EMPTY ' + sl.toUpperCase() + ' SLOT'; } }
+    }
+    _np.text = best._t; _np.sub = best._s; _np.pk = best; return _np;
+  }
+  function usePickup(ent, pk) {
+    if (!pk || !pk.active || !usable(ent, pk)) return false;
+    const isP = !!ent.isPlayer, at = { pos: { x: pk.x, y: pk.y + 0.5, z: pk.z } }, so = isP ? {} : at;
+    if (pk.id === 'ammo') {
+      for (const s of ['primary', 'secondary']) { const w = ent.slots[s]; if (w) Weapons.addAmmo(w, Math.ceil(w.cfg.reserveMax * 0.5)); }
+      consume(pk, 20); snd('pickup_ammo', so); return true;
+    }
+    const cfg = Weapons.CFG[pk.id], slot = pslot(ent, pk.id), cur = ent.slots[slot];
+    if (cur && cur.id === pk.id) { const n = pk.ws ? pk.ws.mag + pk.ws.reserve : cfg.magMax * 2; if (Weapons.addAmmo(cur, n) <= 0) return false; consume(pk, 26); snd('pickup_ammo', so); return true; }
+    const nw = pk.ws || Weapons.newState(pk.id); consume(pk, 26);
+    const fx = -Math.sin(ent.yaw), fz = -Math.cos(ent.yaw);
+    if (isP) Player.giveWeapon(nw);
+    else { if (cur) Weapons.cancelReload(cur); ent.slots[slot] = nw; if (ent.active === slot) ent.soldier.equip(nw.id, nw.cfg && nw.cfg.att); }
+    if (cur) { const dp = dropPickup(cur, ent.pos.x + fx * 0.9, ent.pos.y, ent.pos.z + fz * 0.9); if (dp && isP) dp.scavT = G.time + 1e9; }   /* a gun you just swapped out can't be scavenged by Vulture */
+    snd('pickup_weapon', so); return true;
+  }
+  /* auto pickup: walking over an ammo box, or a copy of a gun you carry, takes it when it would actually help (no key press). Swapping to a different weapon still takes E. */
+  const AUTO_R = 1.35;
+  function autoPickups() {
+    const ent = G.player; if (!ent || !ent.alive) return;
+    const ex = ent.pos.x, ey = ent.pos.y, ez = ent.pos.z, sl = ent.slots;
+    for (let i = G.pickups.length - 1; i >= 0; i--) {
+      const pk = G.pickups[i]; if (!pk.active) continue;
+      const dx = pk.x - ex, dz = pk.z - ez; if (dx * dx + dz * dz > AUTO_R * AUTO_R || Math.abs(pk.y - ey) > 2.2) continue;
+      if (pk.id === 'ammo' || (sl.primary && sl.primary.id === pk.id) || (sl.secondary && sl.secondary.id === pk.id)) usePickup(ent, pk);   /* usePickup only takes it when usable */
+    }
+  }
+  /* Vulture: walking over any weapon on the ground scavenges a magazine of reserve ammo for both guns. The weapon stays where it is, once a minute per weapon. */
+  const VULTURE_R = 1.35;
+  function vultureScavenge() {
+    const ent = G.player; if (!ent || !ent.alive || !(ent.perks && ent.perks.vulture)) return;
+    const ex = ent.pos.x, ey = ent.pos.y, ez = ent.pos.z, sl = ent.slots;
+    for (let i = G.pickups.length - 1; i >= 0; i--) {
+      const pk = G.pickups[i]; if (!pk.active || pk.id === 'ammo') continue;
+      const dx = pk.x - ex, dz = pk.z - ez; if (dx * dx + dz * dz > VULTURE_R * VULTURE_R || Math.abs(pk.y - ey) > 2.2) continue;
+      if (pk.scavT > G.time - 60) continue;
+      let need = false; for (const s of ['primary', 'secondary']) { const w = sl[s]; if (w && w.reserve < w.cfg.reserveMax) need = true; }
+      if (need) { for (const s of ['primary', 'secondary']) { const w = sl[s]; if (w) Weapons.addAmmo(w, w.cfg.magMax); } pk.scavT = G.time; snd('pickup_ammo', {}); }
+    }
+  }
+  function dropWeapon(ent) {
+    if (!ent || !ent.isPlayer) return; const ws = Player.dropActive(); if (!ws) return;
+    const fx = -Math.sin(ent.yaw), fz = -Math.cos(ent.yaw); dropPickup(ws, ent.pos.x + fx * 1.0, ent.pos.y, ent.pos.z + fz * 1.0); snd('pickup_weapon', {});
+  }
+
+  /* ============================================================ spawning / kills */
+  /* free-for-all spawn: any point on any floor; prefer the point farthest from everyone, out of every enemy's line of sight */
+  function pickSpawnFree(team) {
+    const list = G.map.spawns[0], E = G.entities, now = G.time || 0, live = [];
+    for (let k = 0; k < E.length; k++) if (E[k].alive) live.push(E[k]);
+    const sc = [];
+    for (let i = 0; i < list.length; i++) {
+      const sp = list[i]; let dE = 1e9, dA = 1e9, blocked = false;
+      for (let k = 0; k < live.length; k++) { const e = live[k], dy = (e.pos.y - sp.y) * 1.5, d = Math.sqrt((e.pos.x - sp.x) * (e.pos.x - sp.x) + (e.pos.z - sp.z) * (e.pos.z - sp.z) + dy * dy); if (e.team !== team) { if (d < dE) dE = d; } else { if (d < 1.8) blocked = true; if (d < dA) dA = d; } }
+      if (blocked || dE < 8) continue;
+      const age = now - (sp._t === undefined ? -999 : sp._t), recent = age >= 0 && age < 8 ? (8 - age) * 4 : 0;
+      sc.push({ sp: sp, s: Math.min(dE, 60) + Math.min(dA, 20) * 0.25 + Math.random() * 6 - recent });
+    }
+    if (!sc.length) { const f = list[(Math.random() * list.length) | 0]; f._t = now; return f; }
+    sc.sort((a, b) => b.s - a.s);
+    let best = null, bs = -1e9;
+    for (let k = 0; k < Math.min(14, sc.length); k++) {
+      const c = sc[k]; let seen = 0;
+      for (let j = 0; j < live.length; j++) { const e = live[j]; if (e.team !== team && Math.hypot(e.pos.x - c.sp.x, e.pos.z - c.sp.z) < 45 && G.world.clearLine(e.pos.x, e.pos.y + 1.55, e.pos.z, c.sp.x, c.sp.y + 1.2, c.sp.z)) seen++; }
+      const s = c.s - seen * 40; if (s > bs) { bs = s; best = c.sp; }
+    }
+    best._t = now; return best;
+  }
+  function pickSpawn(team) {
+    if (G.map.free) return pickSpawnFree(team);
+    const list = M.mode==='ffa' ? (G.map.spawns[0]||[]).concat(G.map.spawns[1]||[]) : G.map.spawns[team], E = G.entities, cands = [];
+    for (let i = 0; i < list.length; i++) {
+      const sp = list[i]; let md = 1e9, blocked = false;
+      for (let k = 0; k < E.length; k++) { const e = E[k]; if (!e.alive) continue; const d = Math.hypot(e.pos.x - sp.x, e.pos.z - sp.z); if (e.team !== team) { if (d < md) md = d; } else if (d < 1.5) blocked = true; }
+      if (blocked) continue; cands.push({ sp, s: Math.min(md, 90) + Math.random() * 16 });
+    }
+    if (!cands.length) return list[(Math.random() * list.length) | 0];
+    cands.sort((a, b) => b.s - a.s); return cands[Math.min(cands.length - 1, (Math.random() * 3) | 0)].sp;
+  }
+  /* killcam: after the 1s death screen, replay the last seconds from the killer's eyes (SPACE skips) */
+  function startKillcam() {
+    const k = M.kcKiller, idx = Bots.all.indexOf(k);
+    if (k && k.isNetPlayer ? !Replay.beginNet(M.kcInfo) : !Replay.begin(idx, Object.assign({}, M.kcInfo, { wid: M.kcInfo.wid }))) { M.kcDone = true; M.kcKiller = null; return false; }
+    M.kc = { killer: k, t: 0, dur: Replay.length };
+    UI.menus.hideDeath(); UI.menus.showKillcam(M.kcInfo); UI.hud.setVignette(0.2); UI.hud.show(false); UI.hud.scopeOnly(true); return true;
+  }
+  function killcamCam(dt) {
+    Replay.update(dt); const C = Replay.cam, cam = G.camera; if (!C) return;
+    cam.position.set(C.x, C.y, C.z); cam.rotation.set(C.pitch, C.yaw, C.roll || 0, 'YXZ'); UI.menus.killcamProgress(Replay.progress);
+    { const h = (G.settings.fov || 90) * Math.PI / 180, tv = Math.tan(h / 2) / Math.max(1.15, cam.aspect) * Replay.fovScale, fv = 2 * Math.atan(tv) * 180 / Math.PI; if (Math.abs(cam.fov - fv) > 0.01) { cam.fov = fv; cam.updateProjectionMatrix(); } }
+    UI.hud.setScope(Replay.scopeAmt);   /* the killer's scope, drawn over the replay */
+  }
+  function endKillcam(done) {
+    M.kc = null; if (done) M.kcDone = true; Replay.end(); UI.menus.hideKillcam(); UI.hud.scopeOnly(false); UI.hud.setScope(0); UI.hud.show(true);
+    if (!done) M.kcKiller = null;
+  }
+  function respawn(ent) {
+    const sp = pickSpawn(ent.team);
+    if (ent.isPlayer) { UI.menus.hideDeath(); UI.menus.hideKillcam(); Player.spawn(sp); snd('spawn', {}); } else Bots.spawn(ent, sp);
+  }
+   /* Kill action details shown in the feed. */
+   function killTags(attacker, ws) {
+     const t = { knife: false, noscope: false, dive: false }, kind = ws && ws.cfg ? ws.cfg.kind : '';
+     if (!attacker || !kind || kind === 'explosive' || ws.ks) return t;
+     t.knife = kind === 'melee';
+     t.noscope = kind === 'sniper' && (attacker.ads || 0) < 0.55;
+     t.dive = attacker.isPlayer ? attacker.mode === 'dive' : !!(attacker.special && attacker.special.kind === 'dive');
+     return t;
+   }
+  /* everything the death presentation needs to know about the killing blow: weapon, distance, every pellet, and the hits that landed in the previous moments */
+  function deathCtx(victim, attacker, ws, head, info) {
+    const c = info ? Object.assign({}, info) : {};
+    if (ws && ws.cfg) { c.wid = ws.cfg.id; c.kind = ws.cfg.kind; c.pellets = ws.cfg.pellets; }
+    if (c.dist === undefined && attacker && attacker.pos && victim.pos) c.dist = Math.hypot(attacker.pos.x - victim.pos.x, attacker.pos.z - victim.pos.z);
+    const HL = victim.hitLog; victim.hitLog = null;
+    if (HL && HL.length > 1) { c.prior = []; for (let i = HL.length - 2; i >= 0; i--) { const h = HL[i], age = G.time - h.t; if (age >= 0 && age < 0.9) c.prior.push({ zone: h.zone, dx: h.dx, dy: h.dy, dz: h.dz, wid: h.wid, age }); } }
+    return c;
+  }
+  /* ============================================================ score + medals
+     Points per kill: 100 (50 if the kill came from a killstreak), +50 headshot, +25 explosive, double/triple/multi kill bonus,
+     and every special-kill medal adds its own points. The whole kill is then multiplied by the kill-streak multiplier.
+     Tweak the numbers in SCORE_CFG. */
+  const SCORE_CFG = {
+    kill: 100, ksKill: 50, head: 50, explosive: 25,
+    multi: { 2: 250, 3: 400, 4: 600 },
+    streakMult: [[20, 2], [15, 1.75], [10, 1.5], [5, 1.25]],   /* [streak at least, multiplier] */
+    medals: {
+      double:   { name: 'DOUBLE KILL',     pts: 250 },
+      triple:   { name: 'TRIPLE KILL',     pts: 400 },
+      multi:    { name: 'MULTI KILL',      pts: 600 },
+      noscope:  { name: 'NO SCOPE',        pts: 100 },
+      dfa:      { name: 'DEATH FROM ABOVE', pts: 75 },
+      bird:     { name: 'BIRD HUNTER',     pts: 125 },
+      hero:     { name: 'ACTION HERO',     pts: 100 },
+      spin:     { name: '360',             pts: 150 },
+      comeback: { name: 'COMEBACK',        pts: 150 },
+      hpsecure: { name: 'HARDPOINT SECURE', pts: 200 },
+      hpfwd:    { name: 'FORWARD POSITION', pts: 100 },
+      bullseye: { name: 'BULLSEYE',        pts: 200 },   /* throwing knife kill off a ricochet */
+      avenger:  { name: 'AVENGER',         pts: 100 },   /* kill an enemy within avengeWin s of them killing a teammate */
+      revenge:  { name: 'REVENGE',         pts: 100 },   /* kill the enemy that killed you your last life */
+      sticks:   { name: 'STICKS AND STONES', pts: 150 }, /* throwing knife kill + knife kill back to back (either order) */
+      crossmap: { name: 'CROSSMAP',        pts: 150 },   /* throwing knife kill from knifeFar m or more */
+      longshot: { name: 'LONGSHOT',        pts: 100 },   /* gun kill from longFar m or more */
+      pointblank:{ name: 'POINT BLANK',    pts: 75 },    /* gun kill from pbRange m or less */
+      /* kill streak medals: awarded the moment your kills-in-one-life count reaches the number in streakMedals (killstreak-reward kills don't count, same as the streak multiplier) */
+      viscous:  { name: 'VISCOUS',         pts: 100 },
+      brutal:   { name: 'BRUTAL',          pts: 150 },
+      savage:   { name: 'SAVAGE',          pts: 200 },
+      ruthless: { name: 'RUTHLESS',        pts: 250 },
+      merciless:{ name: 'MERCILESS',       pts: 300 },
+      nuclear:  { name: 'NUCLEAR',         pts: 400 },
+      inhuman:  { name: 'INHUMAN',         pts: 500 }
+    },
+    streakMedals: { 5: 'viscous', 10: 'brutal', 15: 'savage', 20: 'ruthless', 25: 'merciless', 30: 'nuclear', 35: 'inhuman' },   /* kills in one life -> medal */
+    spinRad: 5.6, spinWin: 1.2, comebackDeaths: 3,
+    avengeWin: 6, knifeFar: 25, longFar: 50, pbRange: 2.5
+  };
+  const SC = { score: 0, dsk: 0, hist: [], uw: 0, lastYaw: null, revengeOn: null, lastKnife: null };
+  /* medal gallery (main menu > Extras > Medals): group + how-to text for every medal; numbers come from SCORE_CFG so they never go stale */
+  function medalList() {
+    const C = SCORE_CFG, A = window.OMNI_MEDAL_ART || {};
+    const info = [
+      ['MULTI KILLS', 'double', 'Get 2 kills in quick succession (each within 4.5 seconds of the last).'],
+      ['MULTI KILLS', 'triple', 'Get 3 kills in quick succession.'],
+      ['MULTI KILLS', 'multi', 'Get 4 or more kills in quick succession.'],
+      ['KILL STREAKS', 'viscous', 'Kill 5 enemies in one life.'],
+      ['KILL STREAKS', 'brutal', 'Kill 10 enemies in one life.'],
+      ['KILL STREAKS', 'savage', 'Kill 15 enemies in one life.'],
+      ['KILL STREAKS', 'ruthless', 'Kill 20 enemies in one life.'],
+      ['KILL STREAKS', 'merciless', 'Kill 25 enemies in one life.'],
+      ['KILL STREAKS', 'nuclear', 'Kill 30 enemies in one life.'],
+      ['KILL STREAKS', 'inhuman', 'Kill 35 enemies in one life.'],
+      ['SKILL SHOTS', 'noscope', 'Kill an enemy with the sniper rifle without scoping in.'],
+      ['SKILL SHOTS', 'dfa', 'Kill an enemy while you are in mid-air.'],
+      ['SKILL SHOTS', 'bird', 'Kill an enemy while they are in mid-air.'],
+      ['SKILL SHOTS', 'hero', 'Kill an enemy while diving.'],
+      ['SKILL SHOTS', 'spin', 'Kill an enemy right after spinning a full 360 degrees.'],
+      ['DISTANCE', 'longshot', 'Kill an enemy with a gun from ' + C.longFar + ' m or more.'],
+      ['DISTANCE', 'pointblank', 'Kill an enemy with a gun from ' + C.pbRange + ' m or less.'],
+      ['THROWING KNIFE', 'bullseye', 'Get a throwing knife kill off a ricochet.'],
+      ['THROWING KNIFE', 'crossmap', 'Kill an enemy with a throwing knife from ' + C.knifeFar + ' m or more.'],
+      ['THROWING KNIFE', 'sticks', 'Get a throwing knife kill and a knife kill back to back, in either order.'],
+      ['PAYBACK', 'avenger', 'Kill an enemy within ' + C.avengeWin + ' seconds of them killing one of your teammates.'],
+      ['PAYBACK', 'revenge', 'Kill the enemy that killed you on your previous life.'],
+      ['PAYBACK', 'comeback', 'Get a kill after dying ' + C.comebackDeaths + ' times in a row without scoring.'],
+      ['OBJECTIVE', 'hpsecure', 'Arrive at a new Hardpoint, or one the enemy held last (Hardpoint mode).'],
+      ['OBJECTIVE', 'hpfwd', 'Be the first to secure a Hardpoint right after it moves (Hardpoint mode).']
+    ];
+    return info.filter((r) => C.medals[r[1]]).map((r) => ({ group: r[0], id: r[1], name: C.medals[r[1]].name, pts: C.medals[r[1]].pts, desc: r[2], c: (A[r[1]] || {}).c || '#ffd24a', g: (A[r[1]] || {}).g || '' }));
+  }
+  /* best play: the highest-scoring 10 second stretch of the match (sum of kill points earned within any 10 s) */
+  const BP = { kills: [], best: null, snap: null, meta: null, pendT: -1 };
+  function bpReset() { BP.kills.length = 0; BP.best = null; BP.snap = null; BP.meta = null; BP.pendT = -1; }
+  function bpNote(total, victim, head, medals, kwid) {
+    BP.kills.push({ t: G.time, pts: total, vi: Bots.all.indexOf(victim), head: !!head, kwid: kwid || '', medals: medals.map((m) => m.name) });
+    while (BP.kills.length && BP.kills[0].t < G.time - 10) BP.kills.shift();
+    let sum = 0; for (const k of BP.kills) sum += k.pts;
+    if (!BP.best || sum > BP.best.score) { BP.best = { score: sum, kills: BP.kills.map((k) => Object.assign({}, k)) }; BP.pendT = G.time + 1.2; }   /* snapshot 1.2 s later so the replay has the aftermath */
+  }
+  function bpSnap() { BP.pendT = -1; if (!BP.best) return; const sn = Replay.snapshot(); if (sn) { BP.snap = sn; BP.meta = BP.best; } }
+  function startBestPlay() {
+    M.bpDone = true; const cam = G.camera; M.bpCam = { x: cam.position.x, y: cam.position.y, z: cam.position.z, rx: cam.rotation.x, ry: cam.rotation.y, rz: cam.rotation.z, fov: cam.fov };
+    if (window.OmniRooms && window.OmniRooms.connected && window.OmniRooms.bestPlay) { const n=window.OmniRooms.bestPlay(); if (!n || !Replay.beginNetBest(n)) return false; const meta={score:n.score,kills:n.kills||[],playerName:n.playerName}; M.bp={t:0}; UI.menus.hideDeath(); UI.menus.hideKillcam(); UI.menus.showBestPlay(meta); UI.hud.show(false); UI.hud.scopeOnly(true); UI.hud.setVignette(0); return true; }
+    if (!BP.snap || !BP.meta || BP.meta.score <= 0) return false; if (!Replay.beginBest(BP.snap, BP.meta)) return false;
+    M.bp = { t: 0 }; UI.menus.hideDeath(); UI.menus.hideKillcam(); UI.menus.showBestPlay(BP.meta); UI.hud.show(false); UI.hud.scopeOnly(true); UI.hud.setVignette(0); return true;
+  }
+  function bestPlayCam(dt) {
+    M.bp.t += dt; Replay.update(dt); const C = Replay.cam, cam = G.camera; if (!C) return;
+    cam.position.set(C.x, C.y, C.z); cam.rotation.set(C.pitch, C.yaw, C.roll || 0, 'YXZ'); if (Math.abs(cam.fov - C.fov) > 0.01) { cam.fov = C.fov; cam.updateProjectionMatrix(); }
+    UI.menus.bestPlayProgress(Replay.progress, Replay.fade, Replay.scale < 0.6, Replay.label); UI.hud.setScope(Replay.scopeAmt);
+  }
+  function endBestPlay() {
+    if (!M.bp) return; M.bp = null; Replay.end(); UI.menus.hideBestPlay(); UI.hud.scopeOnly(false); UI.hud.setScope(0); UI.hud.show(true);
+    const c = M.bpCam, cam = G.camera; if (c) { cam.position.set(c.x, c.y, c.z); cam.rotation.set(c.rx, c.ry, c.rz, 'YXZ'); cam.fov = c.fov; cam.updateProjectionMatrix(); }
+  }
+  function scoreReset() { bpReset(); SC.revengeOn = null; SC.lastKnife = null; SC.score = 0; SC.dsk = 0; SC.hist.length = 0; SC.lastYaw = null; UI.hud.setPoints(0); }
+  /* per-frame: unwrapped yaw history so a 360 can be detected at the moment of the kill */
+  function scoreTrack() {
+    const P = G.player; if (!P || !P.alive) { SC.hist.length = 0; SC.lastYaw = null; return; }
+    if (SC.lastYaw === null) { SC.lastYaw = P.yaw; SC.uw = 0; }
+    let d = P.yaw - SC.lastYaw; d = Math.atan2(Math.sin(d), Math.cos(d)); SC.lastYaw = P.yaw; SC.uw += d;
+    const h = SC.hist; h.push({ t: G.time, u: SC.uw }); while (h.length && h[0].t < G.time - 2) h.shift();
+  }
+  function spunAround() { let best = 0; for (const q of SC.hist) if (G.time - q.t <= SCORE_CFG.spinWin) best = Math.max(best, Math.abs(SC.uw - q.u)); return best >= SCORE_CFG.spinRad; }
+  function awardScore(victim, attacker, ws, head, ksK, info) {
+    const C = SCORE_CFG, kind = ws && ws.cfg ? ws.cfg.kind : '', expl = kind === 'explosive', kt = killTags(attacker, ws), medals = [];
+    let base = ksK ? C.ksKill : C.kill; if (head) base += C.head; if (expl) base += C.explosive;
+    const add = (id) => medals.push({ id, name: C.medals[id].name, raw: C.medals[id].pts });
+    if (!ksK && M.multi >= 2) add(M.multi === 2 ? 'double' : M.multi === 3 ? 'triple' : 'multi');
+    if (!ksK && C.streakMedals[M.streak]) add(C.streakMedals[M.streak]);   /* kill streak medal: 5 / 10 / ... / 35 kills this life */
+    if (!ksK && !expl) {   /* skill kills: your own gun / knife, not killstreaks or grenades */
+      if (kt.noscope) add('noscope');
+      if (attacker.mode === 'air' && attacker.body && !attacker.body.grounded) add('dfa');
+      if (victim.body && !victim.body.grounded) add('bird');
+      if (kt.dive) add('hero');
+      if (spunAround()) add('spin');
+      /* distance / throwing-knife medals */
+      const wid = ws && ws.cfg ? ws.cfg.id : '', thrown = wid === 'tknife' || wid === 'ttomahawk', melee = kt.knife;
+      const dist = info && info.dist !== undefined ? info.dist : Math.hypot(attacker.pos.x - victim.pos.x, attacker.pos.z - victim.pos.z);
+      if (thrown) {
+        if (info && info.ricochet) add('bullseye');
+        if (dist >= C.knifeFar) add('crossmap');
+      } else if (!melee) {
+        if (dist >= C.longFar) add('longshot');
+        else if (dist <= C.pbRange) add('pointblank');
+      }
+      const kind = thrown ? 'throw' : melee ? 'melee' : null;
+      if (kind && SC.lastKnife && SC.lastKnife !== kind) { add('sticks'); SC.lastKnife = null; } else SC.lastKnife = kind;
+    }
+    if (!ksK) {   /* payback medals */
+      if (victim.tmKillT !== undefined && G.time - victim.tmKillT <= C.avengeWin) add('avenger');
+      if (SC.revengeOn && SC.revengeOn === victim) add('revenge');
+    }
+    victim.tmKillT = undefined; if (SC.revengeOn === victim) SC.revengeOn = null;
+    if (ksK) SC.lastKnife = null;
+    if (SC.dsk >= C.comebackDeaths) add('comeback');
+    SC.dsk = 0;
+    let mult = 1; for (const r of C.streakMult) if (M.streak >= r[0]) { mult = r[1]; break; }
+    let total = base; for (const m of medals) total += m.raw;
+    total = Math.round(total * mult); for (const m of medals) m.pts = Math.round(m.raw * mult);
+    SC.score += total; attacker.stats.score = SC.score;
+    UI.hud.setPoints(SC.score);
+    UI.hud.addMedals(medals, { total, mult, head: !!head, expl, ks: ksK });
+    bpNote(total, victim, head, medals, ws && ws.cfg ? ws.cfg.id : '');
+    return total;
+  }
+
+  /* ============================================================ HARDPOINT game mode
+     One zone ("Hardpoint") is active at a time and jumps to the next site in HP_SITES every HP_CFG.rotate seconds (the next one is previewed in the last
+     HP_CFG.preview seconds). Each second that players of ONE team are inside, that team scores a point; both teams inside = CONTESTED, no points; nobody
+     inside = no points. Arriving at a new Hardpoint, or one the enemy held last, is worth 200 + the HARDPOINT SECURE medal; the first player to secure a
+     freshly moved Hardpoint (within fwdWindow seconds) also gets FORWARD POSITION. Tweak numbers in HP_CFG / sites in HP_SITES ([x, floorY, z]). */
+  const HP_CFG = { limit: 250, rotate: 60, preview: 8, fwdWindow: 12, secureWindow: 4, height: 3.6, below: 0.8 };
+  const HP_SITES = {
+    harbor:      { r: 6,   p: [[12, 0, 5], [-7, 0, -8.5], [-3, 0, 12.5], [9, 0, -14], [-7, 0, 8.5], [12, 0, -5]] },
+    mall:        { r: 6,   p: [[-5.4, 0, -3.6], [20, 0, 12.5], [-22, 4.6, -12], [10, 0, -8], [-20, 0, -12.5], [22, 4.6, 12]] },
+    bullettrain: { r: 3.6, p: [[-4.4, 0, 1.4], [-24.5, 0, -0.6], [19.5, 0, 1.6], [-12.8, 0, 0.8], [29, 0, -0.3], [9.5, 0, 1.6]] },
+    subway:      { r: 6,   p: [[-8, 1.1, 4], [30.5, 1.1, 0], [0, 5.3, 10], [-30, 1.1, 1], [23.5, 5.3, 0], [8, 1.1, 1]] },
+    pool:        { r: 5.5, p: [[-11, 0.8, 5], [11, 0.8, -5], [0, 0.8, 12], [0, 0.8, -12], [-22.4, 0.8, -8.6], [22, 0.8, 9]] },
+    nuketown:    { r: 6.5, p: [[0, 0, 0], [-22, 0, 20], [22, 0, -20], [14, 0, 0], [-14, 0, 0], [0, 0, 15]] },
+    shipment:    { r: 5,   p: [[0, 0, 0], [-12, 0, -12], [12, 0, 12], [-12, 0, 12.5], [12, 0, -11.5], [0.5, 0, 10]] },
+    oilrig:      { r: 7,   p: [[8, 0, 0], [-76, 0, 0], [46, 0, 0], [-36, 0, 0], [44, 3.4, 0], [80, 6.8, 0]] }
+  };
+  const HP = { on: false, i: -1, n: 0, x: 0, y: 0, z: 0, r: 6, left: 0, holder: -1, state: 'empty', cnt: [0, 0], acc: [0, 0], changeT: 0, fwdDone: false, secTeam: -1, secUntil: 0, grp: null, nxt: null, pulse: 0, sites: null };
+  Object.defineProperty(G, 'hp', { get() { return HP; } });
+  function modeName() { return G.settings.mode === 'zombies' ? 'DEAD AIR - ZOMBIES' : G.settings.mode === 'hardpoint' ? 'HARDPOINT' : G.settings.mode === 'ffa' ? 'FREE FOR ALL' : G.settings.mode === 'gunfight' ? 'GUNFIGHT' : 'TEAM DEATHMATCH'; }
+  function modeLimit() { return G.settings.mode === 'zombies' ? 999 : G.settings.mode === 'hardpoint' ? HP_CFG.limit : G.settings.mode === 'ffa' ? 30 : G.settings.mode === 'gunfight' ? GF_CFG.toWin : 75; }
+  function hudScore() { if(M.mode==='ffa'){const v=M.score.slice().sort((a,b)=>b-a);UI.hud.setScore(v[0]||0,v[1]||0,M.limit,'FREE FOR ALL');}else UI.hud.setScore(M.score[0],M.score[1],M.limit,modeName()); }
+  function hpSites() {
+    const s = HP_SITES[G.mapId]; if (s) return s;
+    const hs = (G.map && G.map.hints && G.map.hints.holdSpots) || []; return { r: 6, p: hs.slice(0, 6).map((q) => [q.x, q.y || 0, q.z]) };
+  }
+  function hpMakeGroup(r, op, full) {
+    const g = new THREE.Group(), mats = [];
+    const mk = (geo, o, y, flat) => { const m = new THREE.MeshBasicMaterial({ color: 0xe6eef7, transparent: true, opacity: o, side: THREE.DoubleSide, depthWrite: false, fog: false, toneMapped: false }); const me = new THREE.Mesh(geo, m); me.position.y = y; if (flat) me.rotation.x = -Math.PI / 2; me.frustumCulled = false; me.renderOrder = 5; m.userData = { o: o }; mats.push(m); g.add(me); };
+    mk(new THREE.RingGeometry(r * 0.93, r, 64), op, 0.07, true); mk(new THREE.CircleGeometry(r * 0.93, 64), op * 0.22, 0.06, true);
+    if (full) { mk(new THREE.CylinderGeometry(r, r, HP_CFG.height, 64, 1, true), op * 0.22, HP_CFG.height / 2, false); mk(new THREE.CylinderGeometry(r * 0.6, r * 0.6, 40, 24, 1, true), op * 0.1, 20, false); }
+    g.userData.mats = mats; g.visible = false; return g;
+  }
+  function hpDispose() {
+    for (const g of [HP.grp, HP.nxt]) { if (!g) continue; if (G.scene) G.scene.remove(g); g.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); }); }
+    HP.grp = HP.nxt = null;
+  }
+  function hpSetup() {
+    hpDispose(); M.mode = G.settings.mode === 'hardpoint' ? 'hardpoint' : G.settings.mode === 'ffa' ? 'ffa' : G.settings.mode === 'gunfight' ? 'gunfight' : G.settings.mode === 'zombies' ? 'zombies' : 'tdm'; M.limit = modeLimit(); HP.on = M.mode === 'hardpoint'; gfReset();
+    UI.hud.setHardpoint(null); if (!HP.on) return;
+    HP.sites = hpSites(); HP.r = HP.sites.r; HP.i = -1; HP.n = 0; HP.pulse = 0;
+    HP.grp = hpMakeGroup(HP.r, 0.9, true); HP.nxt = hpMakeGroup(HP.r, 0.4, false); G.scene.add(HP.grp); G.scene.add(HP.nxt);
+    hpMove(true);
+  }
+  function hpMove(first) {
+    const S = HP.sites, p = S.p[(HP.i + 1) % S.p.length]; HP.i = (HP.i + 1) % S.p.length; HP.x = p[0]; HP.y = p[1]; HP.z = p[2]; HP.n++;
+    HP.left = HP_CFG.rotate; HP.holder = -1; HP.changeT = G.time; HP.fwdDone = false; HP.secTeam = -1; HP.acc[0] = HP.acc[1] = 0; HP.state = 'empty';
+    for (const e of G.entities) e._hpIn = false;   /* everyone standing in the new zone counts as arriving */
+    HP.grp.position.set(HP.x, HP.y, HP.z); HP.grp.visible = true;
+    const q = S.p[(HP.i + 1) % S.p.length]; HP.nxt.position.set(q[0], q[1], q[2]);
+    if (!first) {
+      UI.hud.toast('HARDPOINT MOVED', 'info'); snd('countdown', {});
+      for (const b of Bots.all) if (b.alive && (b.state === 'advance' || !b.state)) { b.goal = null; b.path = null; b.holdT = Math.random() * 3; }   /* bots head for the new zone */
+    }
+  }
+  function hpSecure(e) {
+    const now = G.time, t = e.team, medals = [{ id: 'hpsecure', name: SCORE_CFG.medals.hpsecure.name, pts: SCORE_CFG.medals.hpsecure.pts }];
+    if (HP.holder !== t) { HP.secTeam = t; HP.secUntil = now + HP_CFG.secureWindow; }
+    if (!HP.fwdDone) { HP.fwdDone = true; if (now - HP.changeT <= HP_CFG.fwdWindow) medals.push({ id: 'hpfwd', name: SCORE_CFG.medals.hpfwd.name, pts: SCORE_CFG.medals.hpfwd.pts }); }
+    let total = 0; for (const m of medals) total += m.pts;
+    if (e.isPlayer) {
+      SC.score += total; e.stats.score = SC.score; UI.hud.setPoints(SC.score); UI.hud.addMedals(medals, { total, mult: 1 });
+      UI.hud.toast('HARDPOINT SECURED  +' + total, 'kill'); snd('spawn', {});
+    } else e.stats.score = (e.stats.score || 0) + total;
+  }
+  function hpUpdate(dt) {
+    if (!HP.on || !HP.grp) return;
+    HP.pulse += dt;
+    if (G.live && !M.over) {
+      HP.left -= dt; if (HP.left <= 0) hpMove(false);
+      const cnt = [0, 0], arr = [], r2 = HP.r * HP.r, E = G.entities;
+      for (let i = 0; i < E.length; i++) {
+        const e = E[i]; if (!e.alive) { e._hpIn = false; continue; }
+        const dx = e.pos.x - HP.x, dz = e.pos.z - HP.z, dy = e.pos.y - HP.y, inn = dx * dx + dz * dz <= r2 && dy >= -HP_CFG.below && dy <= HP_CFG.height;
+        if (inn) { cnt[e.team]++; if (!e._hpIn) arr.push(e); } e._hpIn = inn;
+      }
+      for (const e of arr) if (HP.holder !== e.team || (HP.secTeam === e.team && G.time < HP.secUntil)) hpSecure(e);
+      HP.cnt = cnt; const solo = cnt[0] && !cnt[1] ? 0 : cnt[1] && !cnt[0] ? 1 : -1, P = G.player ? G.player.team : 0;
+      if (solo >= 0) { HP.holder = solo; HP.acc[solo] += dt; while (HP.acc[solo] >= 1) { HP.acc[solo] -= 1; M.score[solo]++; } }
+      HP.state = cnt[0] && cnt[1] ? 'contested' : solo >= 0 ? (solo === P ? 'ally' : 'enemy') : 'empty';
+      if (!M.over && (M.score[0] >= M.limit || M.score[1] >= M.limit)) endMatch();
+    } else if (!G.live && !M.over) HP.changeT = G.time;   /* the Forward Position window starts when the fight does */
+    const COL = { ally: 0x3aa0ff, enemy: 0xff5a2a, contested: 0xffc83a, empty: 0xe6eef7 }, col = COL[HP.state] || COL.empty, pu = 0.85 + 0.15 * Math.sin(HP.pulse * 4);
+    for (const m of HP.grp.userData.mats) { m.color.setHex(col); m.opacity = m.userData.o * pu * (HP.state === 'contested' ? (0.7 + 0.3 * Math.sin(HP.pulse * 12)) : 1); }
+    const showN = HP.left <= HP_CFG.preview; HP.nxt.visible = showN; if (showN) for (const m of HP.nxt.userData.mats) { m.color.setHex(0xe6eef7); m.opacity = m.userData.o * (0.6 + 0.4 * Math.sin(HP.pulse * 8)); }
+  }
+  function hpProj(x, y, z, out) {
+    const cam = G.camera, w = innerWidth, h = innerHeight; _v.set(x, y, z).project(cam); const behind = _v.z > 1;
+    let sx = (_v.x * 0.5 + 0.5) * w, sy = (-_v.y * 0.5 + 0.5) * h; if (behind) { sx = w - sx; sy = h - sy; }
+    const mx = 90, my = 80, cx = clamp(sx, mx, w - mx), cy = clamp(sy, my, h - my); if (behind && cy === sy) sy = h - my;
+    out.x = clamp(sx, mx, w - mx); out.y = clamp(behind ? h - my : sy, my, h - my); out.vis = true; out.d = Math.hypot(x - cam.position.x, z - cam.position.z); return out;
+  }
+  const _hm = { x: 0, y: 0, vis: false, d: 0 }, _hn = { x: 0, y: 0, vis: false, d: 0 }, _hi = { state: 'neutral', label: '', timer: '', m: _hm, n: _hn };
+  function hpHud() {
+    if (GF.on) { gfFlagHud(); return; }
+    if (!HP.on || !HP.grp || M.over || G.phase === 'paused') { UI.hud.setHardpoint(null); return; }
+    const P = G.player, st = HP.state, t = Math.max(0, Math.ceil(HP.left));
+    _hi.state = st === 'empty' ? 'neutral' : st;
+    _hi.label = st === 'contested' ? 'CONTESTED' : st === 'ally' ? 'HOLDING THE HARDPOINT' : st === 'enemy' ? 'ENEMY HOLDING THE HARDPOINT' : 'HARDPOINT UNOCCUPIED';
+    _hi.timer = (HP.left <= HP_CFG.preview ? 'MOVING IN ' : 'MOVES IN ') + ((t / 60) | 0) + ':' + ('0' + (t % 60)).slice(-2);
+    hpProj(HP.x, HP.y + 2.2, HP.z, _hm); if (HP.nxt.visible) hpProj(HP.nxt.position.x, HP.nxt.position.y + 2.2, HP.nxt.position.z, _hn); else _hn.vis = false;
+    UI.hud.setHardpoint(_hi);
+  }
+
+  /* ============================================================ GUNFIGHT game mode (Shipment only for now)
+     2v2 (you + one bot teammate against two bots). Each round: kill the other team within roundTime seconds. If time runs out with both teams alive the Overtime
+     Flag appears for otTime seconds - the first team to capture it wins the round (stand on it alone for capTime seconds; both teams on it = contested). If nobody
+     captures it the team with the most total health left wins the round. First to toWin rounds wins the match. Everyone (both teams) spawns with the same completely
+     random class - weapons, attachments, perks, lethal + tactical - which is re-rolled every classEvery rounds. No health regeneration, no respawns, no pickups, no
+     killstreaks, and all equipment except the throwing knife is locked for the first eqLock seconds of a round. Tweak the numbers in GF_CFG. */
+  const GF_CFG = { map: 'shipment', bots: 3, toWin: 6, roundTime: 40, otTime: 10, capTime: 3.5, flagR: 3.2, flagPos: [0, 0, 0], eqLock: 5, classEvery: 2, intro: 3.4, bannerT: 3.6 };
+  const GF = { on: false, st: 'off', round: 0, clock: 0, since: 0, lock: false, win: [0, 0], cls: null, newCls: false, cap: [0, 0], flag: null, endT: 0, flip: false, pulse: 0, state: 'neutral' };
+  Object.defineProperty(G, 'gf', { get() { return GF; } });
+  const GF_PERKS = [['overkill', 'preparation', 'actionhero'], ['eod', 'vulture', 'tacmask', 'martyrdom', 'paranoia'], ['dexterity', 'gungho', 'lightweight']];   /* quick fix is left out: nothing regenerates */
+  const gfPick = (a) => a[(Math.random() * a.length) | 0];
+  let gfBanEl = null, gfHudEl = null, gfHudKey = '';
+
+  function gfEnsureUI() {
+    if (gfBanEl) return;
+    const st = document.createElement('style');
+    st.textContent = '#gfBan{position:fixed;left:0;right:0;top:19%;text-align:center;pointer-events:none;z-index:46;color:#fff;text-shadow:0 2px 16px rgba(0,0,0,.85);opacity:0;transition:opacity .25s;font-family:Oswald,Arial Narrow,Impact,sans-serif}#gfBan.on{opacity:1}#gfBan b{display:block;font-size:clamp(34px,6vw,76px);letter-spacing:.22em;font-weight:800;line-height:1.05}#gfBan i{display:block;font-style:normal;font-size:clamp(13px,1.7vw,22px);letter-spacing:.24em;margin-top:10px;color:#d6dee8}#gfBan u{display:block;text-decoration:none;font-size:clamp(11px,1.15vw,15px);letter-spacing:.14em;margin-top:6px;color:#aebccb;line-height:1.7}#gfBan u.h{margin-top:16px;color:#ffc83a;letter-spacing:.3em}#gfBan.w b{color:#5fd0ff}#gfBan.l b{color:#ff6a4a}' +
+      '#gfHud{position:fixed;left:50%;top:96px;transform:translateX(-50%);pointer-events:none;z-index:45;text-align:center;font-size:12px;letter-spacing:.22em;color:#cfd8e3;text-shadow:0 1px 6px #000;display:none;white-space:nowrap;font-family:Oswald,Arial Narrow,Impact,sans-serif}#gfHud .a{color:#3aa0ff;font-size:16px}#gfHud .e{color:#ff5a2a;font-size:16px}#gfHud .z{color:#ffc83a;display:block;margin-top:3px}';
+    document.head.appendChild(st);
+    gfBanEl = document.createElement('div'); gfBanEl.id = 'gfBan'; document.body.appendChild(gfBanEl);
+    gfHudEl = document.createElement('div'); gfHudEl.id = 'gfHud'; document.body.appendChild(gfHudEl);
+  }
+  function gfBanner(cls, title, sub, lines) {
+    gfEnsureUI(); if (!title) { gfBanEl.classList.remove('on'); return; }
+    gfBanEl.className = (cls || '') + ' on'; gfBanEl.innerHTML = '<b>' + title + '</b>' + (sub ? '<i>' + sub + '</i>' : '') + (lines || []).map((l) => '<u' + (l[0] === '!' ? ' class="h"' : '') + '>' + (l[0] === '!' ? l.slice(1) : l) + '</u>').join('');
+  }
+  function gfClassLines() {
+    const c = GF.cls; if (!c) return [];
+    const nm = (id) => (Weapons.CFG[id] ? Weapons.CFG[id].name : id), an = (id) => (Gunsmith.ATT[id] ? Gunsmith.ATT[id].name : id), at = (w) => (c.att[w] && c.att[w].length ? '  ·  ' + c.att[w].map(an).join(', ') : '');
+    const out = []; if (GF.newCls) out.push('!NEW CLASS');
+    out.push('PRIMARY  ' + nm(c.primary).toUpperCase() + at(c.primary)); out.push('SECONDARY  ' + nm(c.secondary).toUpperCase() + at(c.secondary));
+    out.push('PERKS  ' + c.perks.map((p) => p.toUpperCase()).join('  ·  ')); out.push('LETHAL  ' + (c.eq.l === 'knife' ? 'THROWING KNIFE' : c.eq.l === 'tomahawk' ? 'TOMAHAWK' : 'FRAG') + '   ·   TACTICAL  ' + (c.eq.t === 'stim' ? 'STIM SHOT' : 'FLASHBANG'));
+    return out;
+  }
+  /* ---- random class ---- */
+  function gfRollAtt(wid) {
+    if (!Gunsmith.isWeapon(wid)) return [];
+    const L = Gunsmith.listFor(wid), cats = Gunsmith.catsFor(wid).map((c) => c.id).sort(() => Math.random() - 0.5); let list = [];
+    for (const c of cats) { if (list.length >= Gunsmith.MAX) break; if (Math.random() < 0.72 && L[c].length) { const n = Gunsmith.withEquip(wid, list, gfPick(L[c]).id); if (n) list = n; } }
+    return list;
+  }
+  function gfRollClass() {
+    const W = Weapons.uiList(), pri = gfPick(W.filter((w) => w.slot === 'primary')).id, sec = gfPick(W.filter((w) => w.slot === 'secondary')).id, att = {}; att[pri] = gfRollAtt(pri); att[sec] = gfRollAtt(sec);
+    return { primary: pri, secondary: sec, perks: GF_PERKS.map(gfPick), att, eq: { t: Math.random() < 0.5 ? 'flash' : 'stim', l: (['frag', 'knife', 'tomahawk'])[Math.floor(Math.random() * 3) % 3] } };
+  }
+  function gfApplyClass(c) {
+    GF.cls = c; Gunsmith.setForce(c.att); if (typeof Equipment !== 'undefined') Equipment.setForce(c.eq);
+    for (const b of Bots.all) { b.loadout = { primary: c.primary, secondary: c.secondary }; b.role = c.primary === 'awp' ? 'sniper' : 'assault'; }
+  }
+  /* ---- lifecycle ---- */
+  function gfReset() {   /* called from hpSetup for every match start */
+    gfDispose(); GF.on = M.mode === 'gunfight'; GF.st = GF.on ? 'intro' : 'off'; GF.round = 0; GF.win[0] = GF.win[1] = 0; GF.cls = null; GF.cap[0] = GF.cap[1] = 0; GF.lock = false; GF.since = 0; GF.state = 'neutral';
+    Gunsmith.setForce(GF.on ? {} : null); if (typeof Equipment !== 'undefined') Equipment.setForce(null);
+    if (!GF.on) { if (gfBanEl) { gfBanEl.classList.remove('on'); gfHudEl.style.display = 'none'; } }
+  }
+  function gfRelease() { Gunsmith.setForce(null); if (typeof Equipment !== 'undefined') Equipment.setForce(null); if (gfBanEl) { gfBanEl.classList.remove('on'); gfHudEl.style.display = 'none'; } }   /* the match is over: give the loadout screen the player's own builds back */
+  function gfEnd() { gfRelease(); gfDispose(); GF.on = false; GF.st = 'off'; }
+  function gfDispose() { const f = GF.flag; if (f && f.grp) { if (G.scene) G.scene.remove(f.grp); f.grp.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); }); } GF.flag = null; }
+  function gfSpawns() {
+    const pool = (G.map.spawns && G.map.spawns[0]) || []; let L = pool.filter((p) => p.x < -12), R = pool.filter((p) => p.x > 12);
+    if (L.length < 2 || R.length < 2) { const a = pool.slice().sort((p, q) => p.x - q.x), h = a.length >> 1; L = a.slice(0, h); R = a.slice(h); }
+    const take = (list) => { const a = gfPick(list), near = list.filter((p) => p !== a && Math.hypot(p.x - a.x, p.z - a.z) >= 2.4).sort((p, q) => Math.hypot(p.x - a.x, p.z - a.z) - Math.hypot(q.x - a.x, q.z - a.z)); return [a, near[0] || list.find((p) => p !== a) || a].map((p) => ({ x: p.x, y: p.y, z: p.z, yaw: Math.atan2(p.x, p.z) })); };
+    const A = take(L), B = take(R); GF.flip = !GF.flip; return GF.flip ? [A, B] : [B, A];   /* the two teams swap sides every round */
+  }
+  function gfStart() {
+    GF.round = 0; GF.win[0] = GF.win[1] = 0; GF.cls = null; GF.waitT = 0; GF.cnt = null; M.score.length = 2; M.score[0] = M.score[1] = 0;
+    if (gfNetOn()) {   /* private room: the host runs the rounds, everybody waits until all players have loaded */
+      GF.st = 'wait'; gfBanner('', 'GUNFIGHT  2v2', gfIsHost() ? 'WAITING FOR PLAYERS' : 'WAITING FOR HOST', []);
+      if (gfIsHost()) OmniRooms.gfBeginMatch();
+      return;
+    }
+    gfBegin();
+  }
+  function gfBegin(pk) {   /* pk = round packet from the room host (guests); nothing = decide here (single player, or the room host) */
+    if (pk) { GF.round = +pk.round || (GF.round + 1); GF.newCls = !!pk.newCls; GF.win[0] = +(pk.win && pk.win[0]) || 0; GF.win[1] = +(pk.win && pk.win[1]) || 0; M.score[0] = GF.win[0]; M.score[1] = GF.win[1]; if (pk.cls) gfApplyClass(pk.cls); }
+    else { GF.round++; GF.newCls = (GF.round - 1) % GF_CFG.classEvery === 0; if (GF.newCls || !GF.cls) gfApplyClass(gfRollClass()); }
+    if (M.kc) endKillcam(true); M.kc = null; M.kcKiller = null; M.kcDone = true; M.respawnT = 0; UI.menus.hideDeath(); UI.menus.hideKillcam();
+    try { Combat.reset(); FX.clear(); clearPickups(); if (typeof Equipment !== 'undefined') Equipment.reset(); } catch (e) { console.error('[gunfight reset]', e); }
+    gfDispose();
+    const c = GF.cls;
+    if (gfNetOn()) {   /* room: every player gets a spawn from the host's packet, teammates start next to each other */
+      if (!pk) { pk = { round: GF.round, newCls: GF.newCls, cls: c, win: GF.win.slice(), spawns: gfNetSpawns() }; OmniRooms.sendGF(Object.assign({ type: 'gfRound' }, pk)); }
+      const my = (pk.spawns && pk.spawns[OmniRooms.id()]) || gfSpawns()[OmniRooms.team === 1 ? 1 : 0][0];
+      G.player.team = OmniRooms.team === 1 ? 1 : 0; Player.spawn(my, { primary: c.primary, secondary: c.secondary, perks: c.perks });
+    } else {
+      const sp = gfSpawns(), mates = Bots.all.filter((b) => b.team === 0), foes = Bots.all.filter((b) => b.team === 1);
+      G.player.team = 0; Player.spawn(sp[0][0], { primary: c.primary, secondary: c.secondary, perks: c.perks });
+      mates.forEach((b, i) => Bots.spawn(b, sp[0][Math.min(i + 1, 1)])); foes.forEach((b, i) => Bots.spawn(b, sp[1][Math.min(i, 1)]));
+    }
+    snd('spawn', {});
+    GF.st = 'intro'; GF.clock = GF_CFG.roundTime; GF.since = 0; GF.lock = true; GF.cap[0] = GF.cap[1] = 0; GF.state = 'neutral'; G.live = false; G.phase = 'countdown'; M.cdT = GF_CFG.intro; M.cdN = 0;
+    gfBanner('', 'ROUND ' + GF.round, 'FIRST TO ' + GF_CFG.toWin + '   ·   ' + GF.win[0] + ' - ' + GF.win[1], gfClassLines());
+  }
+  function gfLive() { GF.st = 'fight'; GF.since = 0; GF.lock = true; gfBanner(null); }
+  function gfEndRound(win, why, pk) {   /* pk = the host's round-result packet (guests) */
+    GF.st = 'between'; GF.endT = GF_CFG.bannerT; G.live = false; UI.hud.setHardpoint(null);
+    if (pk) { GF.win[0] = +(pk.wins && pk.wins[0]) || 0; GF.win[1] = +(pk.wins && pk.wins[1]) || 0; M.score[0] = GF.win[0]; M.score[1] = GF.win[1]; } else if (win >= 0) { GF.win[win]++; M.score[win] = GF.win[win]; }
+    const me = G.player.team, won = win === me, title = win < 0 ? 'ROUND DRAW' : won ? 'ROUND WON' : 'ROUND LOST';
+    gfBanner(win < 0 ? '' : won ? 'w' : 'l', title, why + '   ·   ' + GF.win[me] + ' - ' + GF.win[1 - me], []);
+    snd(won ? 'spawn' : 'countdown', {});
+    if (!pk && gfNetOn()) OmniRooms.sendGF({ type: 'gfEnd', win: win, why: why, wins: GF.win.slice() });
+    if (win >= 0 && GF.win[win] >= GF_CFG.toWin) endMatch(win);
+  }
+  function gfOvertime() {
+    GF.st = 'ot'; GF.clock = GF_CFG.otTime; GF.cap[0] = GF.cap[1] = 0; GF.state = 'neutral'; GF.cnt = [0, 0]; if (gfNetOn() && gfIsHost()) OmniRooms.sendGF({ type: 'gfOT' });
+    const fp = GF_CFG.flagPos, r = GF_CFG.flagR, grp = hpMakeGroup(r, 0.9, true), pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 3.4, 8), new THREE.MeshBasicMaterial({ color: 0xe6eef7, fog: false })), cloth = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.75), new THREE.MeshBasicMaterial({ color: 0xe6eef7, side: THREE.DoubleSide, fog: false }));
+    pole.position.y = 1.7; cloth.position.set(0.62, 3.0, 0); grp.add(pole); grp.add(cloth); grp.position.set(fp[0], fp[1], fp[2]); grp.visible = true; G.scene.add(grp);
+    GF.flag = { x: fp[0], y: fp[1], z: fp[2], r, grp, cloth };
+    UI.hud.toast('OVERTIME  -  CAPTURE THE FLAG', 'warn'); snd('countdown', {});
+    for (const b of Bots.all) if (b.alive) { b.goal = null; b.path = null; b.holdT = 0; }
+  }
+  function gfUpdate(dt) {
+    if (!GF.on || M.over) return; GF.pulse += dt;
+    const net = gfNetOn(), host = !net || gfIsHost();   /* in a room only the host decides when a round ends; guests follow its messages */
+    if (GF.st === 'wait') { if (host) { GF.waitT += dt; if (!net || OmniRooms.allReady() || GF.waitT > 20) gfBegin(); } return; }
+    if (GF.st === 'between') { if (host) { GF.endT -= dt; if (GF.endT <= 0) gfBegin(); } return; }
+    if (GF.st !== 'fight' && GF.st !== 'ot') return;
+    GF.since += dt; GF.lock = GF.since < GF_CFG.eqLock;
+    if (!host) { GF.clock = Math.max(0, GF.clock - dt); if (GF.st === 'ot' && GF.flag) gfFlagVis(GF.cnt || [0, 0]); return; }
+    const alive = [0, 0], hp = [0, 0], E = G.entities;
+    for (let i = 0; i < E.length; i++) { const e = E[i]; if (e.alive && (e.team === 0 || e.team === 1)) { alive[e.team]++; hp[e.team] += Math.max(0, e.hp); } }
+    if ((!alive[0] || !alive[1]) && (!net || GF.since > 0.75)) { gfEndRound(alive[0] ? 0 : alive[1] ? 1 : -1, alive[0] || alive[1] ? 'TEAM ELIMINATED' : 'NO SURVIVORS'); return; }
+    if (GF.st === 'fight') { GF.clock -= dt; if (GF.clock <= 0) { GF.clock = 0; gfOvertime(); } return; }
+    /* overtime: capture the flag */
+    const f = GF.flag, cnt = [0, 0], r2 = f.r * f.r;
+    for (let i = 0; i < E.length; i++) { const e = E[i]; if (!e.alive) continue; const dx = e.pos.x - f.x, dz = e.pos.z - f.z, dy = e.pos.y - f.y; if (dx * dx + dz * dz <= r2 && dy >= -HP_CFG.below && dy <= HP_CFG.height) cnt[e.team]++; }
+    const solo = cnt[0] && !cnt[1] ? 0 : cnt[1] && !cnt[0] ? 1 : -1;
+    if (solo >= 0) { GF.cap[solo] = Math.min(1, GF.cap[solo] + dt / GF_CFG.capTime); GF.cap[1 - solo] = Math.max(0, GF.cap[1 - solo] - dt / GF_CFG.capTime); }
+    GF.cnt = cnt; gfFlagVis(cnt);
+    if (GF.cap[0] >= 1) { gfEndRound(0, 'FLAG CAPTURED'); return; } if (GF.cap[1] >= 1) { gfEndRound(1, 'FLAG CAPTURED'); return; }
+    GF.clock -= dt;
+    if (GF.clock <= 0) {
+      GF.clock = 0;
+      if (hp[0] > hp[1]) gfEndRound(0, 'MOST HEALTH REMAINING  ' + Math.round(hp[0]) + ' - ' + Math.round(hp[1])); else if (hp[1] > hp[0]) gfEndRound(1, 'MOST HEALTH REMAINING  ' + Math.round(hp[1]) + ' - ' + Math.round(hp[0])); else gfEndRound(-1, 'HEALTH TIED');
+    }
+  }
+  /* ---- Gunfight in private rooms (host-authoritative rounds) ---- */
+  function gfNetOn() { return !!(window.OmniRooms && OmniRooms.connected); }
+  function gfIsHost() { return !!(window.OmniRooms && OmniRooms.getRole && OmniRooms.getRole() === 'host'); }
+  function gfNetSpawns() {   /* host: { playerId: spawn } - each team's two players start side by side, teams swap ends every round */
+    const sp = gfSpawns(), cnt = [0, 0], out = {};
+    OmniRooms.ids().forEach((id) => { const t = OmniRooms.teamOf(id) === 1 ? 1 : 0; out[id] = sp[t][Math.min(cnt[t]++, 1)]; });
+    return out;
+  }
+  function gfFlagVis(cnt) {   /* colour + pulse of the overtime flag from who stands on it (same for host and guests) */
+    const f = GF.flag; if (!f) return; const me = G.player.team, solo = cnt[0] && !cnt[1] ? 0 : cnt[1] && !cnt[0] ? 1 : -1;
+    GF.state = cnt[0] && cnt[1] ? 'contested' : solo >= 0 ? (solo === me ? 'ally' : 'enemy') : 'neutral';
+    const col = { ally: 0x3aa0ff, enemy: 0xff5a2a, contested: 0xffc83a, neutral: 0xe6eef7 }[GF.state], pu = 0.85 + 0.15 * Math.sin(GF.pulse * 5);
+    for (const m of f.grp.userData.mats) { m.color.setHex(col); m.opacity = m.userData.o * pu; } f.cloth.material.color.setHex(col); f.cloth.rotation.y = Math.sin(GF.pulse * 3) * 0.25;
+  }
+  function gfNetState() { return GF.on ? { st: GF.st, round: GF.round, clock: +GF.clock.toFixed(2), cap: [+GF.cap[0].toFixed(3), +GF.cap[1].toFixed(3)], cnt: GF.cnt || [0, 0] } : undefined; }
+  function gfApplyNet(g) {   /* guest: clock + capture progress as the host sees them */
+    if (!GF.on || !g || (GF.st !== 'fight' && GF.st !== 'ot') || g.round !== GF.round) return;
+    if (isFinite(+g.clock)) GF.clock = +g.clock; if (Array.isArray(g.cap)) { GF.cap[0] = +g.cap[0] || 0; GF.cap[1] = +g.cap[1] || 0; } if (Array.isArray(g.cnt)) GF.cnt = [+g.cnt[0] || 0, +g.cnt[1] || 0];
+  }
+  function gfNetMsg(m) {   /* guest: round events from the host */
+    if (!GF.on || M.over || !m) return;
+    if (m.type === 'gfRound') gfBegin(m);
+    else if (m.type === 'gfOT') { if (GF.st === 'fight' || GF.st === 'intro') gfOvertime(); }
+    else if (m.type === 'gfEnd') { if (GF.st !== 'between') gfEndRound(+m.win, String(m.why || ''), m); }
+  }
+  function gfFlagHud() {
+    if (GF.st !== 'ot' || !GF.flag || M.over || G.phase === 'paused') { UI.hud.setHardpoint(null); return; }
+    const me = G.player.team, f = GF.flag, st = GF.state, t = Math.max(0, Math.ceil(GF.clock));
+    _hi.state = st; _hi.label = st === 'contested' ? 'CONTESTED' : st === 'ally' ? 'CAPTURING  ' + Math.round(GF.cap[me] * 100) + '%' : st === 'enemy' ? 'ENEMY CAPTURING  ' + Math.round(GF.cap[1 - me] * 100) + '%' : 'CAPTURE THE OVERTIME FLAG';
+    _hi.timer = 'OVERTIME  0:' + ('0' + t).slice(-2); hpProj(f.x, f.y + 3.6, f.z, _hm); _hn.vis = false; UI.hud.setHardpoint(_hi);
+  }
+  function gfTick() {   /* little status line under the timer: round, who is alive, equipment lock */
+    if (!GF.on) return; gfEnsureUI();
+    if (M.over || G.phase === 'paused' || G.menuOpen || (G.phase !== 'playing' && G.phase !== 'countdown')) { if (gfHudEl.style.display !== 'none') gfHudEl.style.display = 'none'; return; }
+    const al = [0, 0]; for (const e of G.entities) if (e.alive && (e.team === 0 || e.team === 1)) al[e.team]++;
+    const me = G.player.team, pips = (n, c) => '<span class="' + c + '">' + '&#9679;'.repeat(n) + '<span style="opacity:.3">' + '&#9679;'.repeat(Math.max(0, 2 - n)) + '</span></span>';
+    const k = GF.round + '|' + al[0] + al[1] + '|' + (GF.st === 'fight' && GF.lock ? Math.ceil(GF_CFG.eqLock - GF.since) : 0) + '|' + GF.st;
+    if (k === gfHudKey) return; gfHudKey = k;
+    gfHudEl.innerHTML = pips(al[me], 'a') + '&nbsp;&nbsp; ROUND ' + GF.round + ' &nbsp;&nbsp;' + pips(al[1 - me], 'e') + (GF.st === 'fight' && GF.lock ? '<span class="z">EQUIPMENT READY IN ' + Math.ceil(GF_CFG.eqLock - GF.since) + '  (KNIFE OK)</span>' : GF.st === 'ot' ? '<span class="z">OVERTIME</span>' : '');
+    gfHudEl.style.display = 'block';
+  }
+
+  function kill(victim, attacker, ws, head, info) {
+    if (victim.zombie) Zombies.onKill(victim, attacker, head);
+    const ctx = deathCtx(victim, attacker, ws, head, info);
+    victim.alive = false; victim.stats.deaths++;
+    const self = !attacker || attacker === victim; if (!self) { attacker.stats.kills++; if (head) attacker.stats.headshots++; if(M.mode==='ffa') M.score[attacker.team]=(M.score[attacker.team]||0)+1; else if (M.mode !== 'hardpoint' && M.mode !== 'gunfight' && M.mode !== 'zombies') M.score[attacker.team]=(M.score[attacker.team]||0)+1; if (attacker.isNetPlayer && window.OmniRooms && !victim.zombie) window.OmniRooms.sendResult({team:attacker.team,victim:victim.name,head:!!head,to:attacker.id,vid:victim.isPlayer&&window.OmniRooms.id?window.OmniRooms.id():'',fe:(function(){const k=killTags(attacker,ws);return{killer:attacker.name,victim:victim.name,weapon:ws&&ws.cfg?ws.cfg.name:'',head:!!head,knife:k.knife,noscope:k.noscope,dive:k.dive,kt:attacker.team,vt:victim.team};})(),wd:ws&&ws.cfg?{id:ws.cfg.id,name:ws.cfg.name,kind:ws.cfg.kind,ks:!!ws.ks,pellets:ws.cfg.pellets}:null,dist:ctx.dist,pts:((ws&&ws.ks)?50:100)+(head?50:0)+(ws&&ws.cfg&&ws.cfg.kind==='explosive'?25:0),t:(GF.on&&window.OmniRooms.elapsed)?window.OmniRooms.elapsed():M.duration-M.timeLeft}); }
+     const kt = self ? killTags(null, null) : killTags(attacker, ws);
+    if (!victim.zombie) UI.hud.addKill({ killer: attacker ? attacker.name : '', victim: victim.name, weapon: ws ? ws.cfg.name : '', head: !!head, knife: kt.knife, noscope: kt.noscope, dive: kt.dive, killerTeam: attacker ? attacker.team : victim.team, victimTeam: victim.team, you: attacker && attacker.isPlayer && !self ? 'killer' : victim.isPlayer ? 'victim' : null });
+    if (!self && attacker && !victim.isPlayer && G.player && victim.team === G.player.team && attacker.team !== victim.team) attacker.tmKillT = G.time;   /* an enemy just killed one of our teammates (AVENGER window) */
+    if (victim.isPlayer) {
+      SC.dsk++; SC.revengeOn = (!self && attacker && attacker.team !== victim.team) ? attacker : null; SC.lastKnife = null;   /* REVENGE target = whoever killed you */
+      try { if (typeof Killstreaks !== 'undefined') Killstreaks.onDeath(); } catch (e) { } const netPower = Bots.punch(ws, attacker, victim.pos.x, victim.pos.z, head); victim.netDeathSeq = (victim.netDeathSeq || 0) + 1; victim.netDeath = { seq: victim.netDeathSeq, dx: info ? info.dx : 0, dy: info ? info.dy : 0, dz: info ? info.dz : 0, head: !!head, power: netPower, zone: info ? info.zone : undefined, kind: ws && ws.cfg ? ws.cfg.kind : '', vx: victim.body.vx || 0, vy: victim.body.vy || 0, vz: victim.body.vz || 0 }; Player.onDeath(attacker, head, info ? info.dx : 0, info ? info.dz : 0, netPower, info ? info.zone : undefined, ctx); M.streak = 0; M.multi = 0; M.respawnT = GF.on ? 1e9 : 2.6; M.kcDone = false; M.kc = null;   /* Gunfight: you stay down until the round ends */
+      M.kcKiller = (M.mode !== 'zombies' && attacker && attacker !== victim && attacker.pos && ((attacker.soldier && Bots.all.indexOf(attacker) >= 0) || attacker.isNetPlayer)) ? attacker : null;
+      { let dx = attacker ? victim.pos.x - attacker.pos.x : 0, dz = attacker ? victim.pos.z - attacker.pos.z : 1; const dl = Math.hypot(dx, dz) || 1; const aw = victim.slots[victim.active];
+        M.kcInfo = { killer: attacker ? attacker.name : '', killerTeam: attacker ? attacker.team : 1, weapon: ws ? ws.cfg.name : '', tD: G.time, dx: dx / dl, dz: dz / dl, head: !!head, zone: info ? info.zone : undefined, wid: aw ? aw.id : 'ak', kwid: ws && ws.cfg ? ws.cfg.id : '', netPlayerId: attacker && attacker.isNetPlayer ? attacker.id : '', ctx: ctx }; }
+      const w = victim.slots[victim.active]; if (w) dropPickup(w, victim.pos.x, victim.pos.y, victim.pos.z);
+      const d = attacker ? Math.hypot(attacker.pos.x - victim.pos.x, attacker.pos.z - victim.pos.z) : 0;
+      UI.menus.showDeath({ killer: attacker ? attacker.name : 'UNKNOWN', killerTeam: attacker ? attacker.team : 1, weapon: ws ? ws.cfg.name : '', head: !!head, dist: d, respawnIn: M.respawnT, killcam: !GF.on && !!(G.settings.killcam && M.kcKiller) });
+    } else Bots.onDeath(victim, attacker, head, info ? info.dx : 0, info ? info.dz : 0, ws, attacker, info ? info.zone : undefined, ctx);
+    if (attacker && attacker.isPlayer && !self && !victim.zombie) {
+      try { Player.onKill(); } catch (e) { }
+      const ksK = !!(ws && ws.ks); if (!ksK) { M.streak++; M.multi = (G.time - M.lastKillT < 4.5) ? M.multi + 1 : 1; M.lastKillT = G.time; }
+      const pts = awardScore(victim, attacker, ws, head, ksK, info);
+      UI.hud.toast('ELIMINATED  ' + victim.name + (head ? '  HEADSHOT' : '') + '  +' + pts, 'kill');
+      if (!ksK && (M.streak === 5 || M.streak === 10 || M.streak === 15 || M.streak === 20)) if (!document.body.classList.contains('zmOnly')) UI.hud.toast(M.streak + ' KILL STREAK', 'warn'); if (!ksK && typeof Killstreaks !== 'undefined' && !GF.on) Killstreaks.onKill(M.streak);
+    }
+    if(!M.over&&M.mode==='ffa'&&attacker&&M.score[attacker.team]>=M.limit)endMatch(attacker.team);else if(!M.over&&M.mode!=='hardpoint'&&M.mode!=='ffa'&&M.mode!=='gunfight'&&M.mode!=='zombies'&&(M.score[0]>=M.limit||M.score[1]>=M.limit))endMatch();
+  }
+
+  /* ============================================================ match flow */
+  function resetStats(e) { e.stats = { kills: 0, deaths: 0, headshots: 0, shots: 0, hits: 0, dmg: 0 }; }
+  /* ---- map registry + hot swap ---- */
+  const MAPS = {
+    harbor: { id: 'harbor', name: 'HARBOR QUARTER', tag: 'THREE-LANE ARENA', build: (s, r) => GameMap.build(s, r) },
+    mall: { id: 'mall', name: 'ATRIUM MALL', tag: 'TWO FLOORS · FREE SPAWNS', build: (s, r) => MallMap.build(s, r) },
+    bullettrain: { id: 'bullettrain', name: 'BULLET TRAIN', tag: 'TOKYO EXPRESS · NIGHT', build: (s, r) => BulletTrainMap.build(s, r) },
+    subway: { id: 'subway', name: 'SUBWAY STATION', tag: 'ATTACK AFTERMATH - FREE SPAWNS', build: (s, r) => SubwayMap.build(s, r) },
+    pool: { id: 'pool', name: 'POOL DAY', tag: 'TILED POOL COMPLEX - FREE SPAWNS', build: (s, r) => PoolMap.build(s, r) },
+    nuketown: { id: 'nuketown', name: 'NUKETOWN', tag: 'SUBURBAN TEST SITE - FREE SPAWNS', build: (s, r) => NuketownMap.build(s, r) },
+    shipment: { id: 'shipment', name: 'SHIPMENT', tag: 'CONTAINER YARD - FREE SPAWNS', build: (s, r) => ShipmentMap.build(s, r) },
+    deadair: { id: 'deadair', name: 'DEAD AIR', tag: 'ABANDONED BROADCAST STATION - ZOMBIES', build: (s, r) => DeadAirMap.build(s, r) },
+    oilrig: { id: 'oilrig', name: 'OIL RIG', tag: 'OFFSHORE DRILLING PLATFORM - FREE SPAWNS', build: (s, r) => OilRigMap.build(s, r) }
+  };
+  function disposeMap() {
+    const m = G.map; if (!m) return;
+    G.scene.remove(m.group); G.scene.remove(m.dome); G.scene.remove(m.sun); G.scene.remove(m.sun.target); G.scene.remove(m.hemi);
+    const mats = new Set();
+    m.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) mats.add(o.material); });
+    mats.forEach((mt) => { for (const k of ['map', 'bumpMap', 'normalMap', 'roughnessMap']) if (mt[k]) mt[k].dispose(); mt.dispose(); });
+    m.dome.geometry.dispose(); m.dome.material.dispose(); if (m.sun.shadow.map) m.sun.shadow.map.dispose(); if (m.env && m.env.texture) m.env.texture.dispose();
+    G.scene.environment = null; G.scene.fog = null;
+  }
+  function applyMap(id, first) {
+    if (!MAPS[id]) id = 'harbor';
+    if (!first) disposeMap();
+    G.map = MAPS[id].build(G.scene, G.renderer); G.mapId = id; G.settings.map = id; G.world = G.map.world; M.name = G.map.name;
+    if (G.map.navDoors) G.map.navDoors(true);
+    G.nav = Nav.create(G.world);
+    if (G.map.navDoors) G.map.navDoors(false);
+    Bots.init();
+    if (first) { FX.init(G.scene, G.world); ViewModel.init(G.map.env, 0); } else { FX.setWorld(G.world); ViewModel.setEnv(G.map.env); }
+  }
+  async function startMatch(sel, set) {
+    lobbyOff();
+    if (window.OmniMenu && OmniMenu.stopMusic) OmniMenu.stopMusic();
+    lockPointer();
+    if (set && set.map && MAPS[set.map]) G.settings.map = set.map;
+    G.selection = selOf(sel); if (set) { G.settings.difficulty = set.difficulty || G.settings.difficulty; G.settings.bots = set.bots || G.settings.bots; if (set.mode === 'tdm' || set.mode === 'hardpoint' || set.mode === 'ffa' || set.mode === 'gunfight' || set.mode === 'zombies') G.settings.mode = set.mode; }
+    if (G.settings.mode === 'zombies' && !(window.OmniRooms && OmniRooms.getRole && OmniRooms.getRole())) G.settings.mode = 'tdm';   /* Dead Air is multiplayer only */
+    if (G.settings.mode === 'zombies') { G.settings.map = 'deadair'; G.selection = selOf({ primary: 'm1911', secondary: 'm1911', perks: ['overkill', 'none', 'none'] }); }
+    if (G.settings.mode === 'gunfight') G.settings.map = GF_CFG.map;   /* Gunfight is Shipment only for now */
+    Bots.setDifficulty(G.settings.difficulty); G.phase = 'loading'; G.live = false; G.matchOver = false; G.menuOpen = false;
+    if (M.kc) endKillcam(true); if (M.bp) endBestPlay(); M.bp = null; M.bpDone = false; M.kc = null; M.kcKiller = null; Replay.reset(); UI.menus.hideKillcam(); UI.menus.hideLoadout(); UI.menus.hideEnd(); UI.menus.hideDeath(); UI.menus.hidePause(); UI.hud.show(false); UI.menus.showLoading('DEPLOYING', 0.3); await tick(40);
+    try {
+      Bots.clear(); G.entities.length = 0; G.entities.push(G.player); clearPickups(); FX.clear(); Combat.reset(); if (typeof Equipment !== 'undefined') Equipment.reset(); if (typeof Killstreaks !== 'undefined') Killstreaks.reset();
+      if (G.settings.map !== G.mapId) { UI.menus.showLoading('BUILDING ARENA', 0.5); await tick(40); applyMap(G.settings.map, false); applyGraphics(true); try { G.renderer.compile(G.scene, G.camera); } catch (e) { } UI.menus.showLoading('DEPLOYING', 0.8); await tick(20); }
+      if (G.settings.mode !== 'gunfight') initMapPickups();
+      M.score.length = 2; M.score[0] = M.score[1] = 0; M.timeLeft = M.duration; M.over = false; M.shown = false; M.streak = 0; M.multi = 0; M.respawnT = 0; M.winner = -1; M.cdN = 0; G.time = 0; scoreReset(); if (window.OmniRooms && window.OmniRooms.resetBestPlay) window.OmniRooms.resetBestPlay(); hpSetup();
+      resetStats(G.player); const n = M.mode === 'zombies' ? 0 : M.mode === 'gunfight' ? (gfNetOn() ? 0 : GF_CFG.bots) : G.settings.bots, per = Math.floor(n / 2);   /* Gunfight 2v2: you + 1 bot teammate against 2 bots */
+      Bots.spawnTeam(0, per, 0); Bots.spawnTeam(1, n - per, per); if(M.mode==='ffa') Bots.all.forEach((b,i)=>{b.team=i+1;});
+      G.player.team = window.OmniRooms && OmniRooms.team !== undefined ? OmniRooms.team : 0; Player.spawn(pickSpawn(G.player.team), G.selection);
+      for (const e of G.entities) if (e.isBot) Bots.spawn(e, pickSpawn(e.team));
+      if (M.mode === 'gunfight') gfStart(); if (M.mode === 'zombies') Zombies.start(); else Zombies.stop();
+      UI.menus.showLoading('DEPLOYING', 0.9); await tick(30);
+    } catch (err) { console.error(err); UI.menus.hideLoading(); UI.menus.showError('FAILED TO START THE MATCH: ' + (err && err.message)); return; }
+    UI.menus.hideLoading(); UI.hud.show(true); UI.hud.setScore(0, 0, M.limit, modeName()); UI.hud.setTimer(M.duration);
+    G.phase = 'countdown'; M.cdT = 3.4; G.live = false; last = performance.now();
+    if (GF.on && gfNetOn() && !gfIsHost() && OmniRooms.gfReady) OmniRooms.gfReady();   /* room guest: tell the host this player has loaded */
+  }
+  function endMatch(win) {
+    if (M.over) return; if (win === 0) M.score[0] = Math.max(M.score[0], M.limit); M.over = true; G.matchOver = true; G.live = false; M.endT = 2.2; M.shown = false; Replay.hold(G.time + 1.3);
+    if(M.mode==='ffa'){if(win!==undefined)M.winner=win;else{let high=-1,tie=false;M.winner=-1;M.score.forEach((v,i)=>{if(v>high){high=v;M.winner=i;tie=false;}else if(v===high)tie=true;});if(tie)M.winner=-1;}}else M.winner = M.mode === 'zombies' ? 1 : win === 0 ? 0 : M.score[0] > M.score[1] ? 0 : M.score[1] > M.score[0] ? 1 : -1;
+    UI.hud.toast(M.mode==='ffa'?(M.winner===G.player.team?'FREE FOR ALL WIN':M.winner<0?'DRAW':'MATCH OVER'):(M.mode === 'zombies' ? 'GAME OVER  ·  ROUND ' + Zombies.round : M.winner === 0 ? 'VICTORY' : M.winner === 1 ? 'DEFEAT' : 'DRAW'), M.mode==='ffa'?(M.winner===G.player.team?'kill':'warn'):(M.winner === 1 ? 'warn' : 'kill'));
+  }
+  function showEnd() {
+    M.shown = true; releasePointer(); if (G.menuOpen) { UI.menus.hideLoadout(); G.menuOpen = false; } gfRelease();   /* the end screen is the only thing left to click */
+    UI.hud.showScoreboard(false); G.sbHeld = false; const st = G.player.stats;
+    UI.menus.showEnd({ team0: M.mode === 'zombies' ? Zombies.round : M.score[0], team1: M.mode === 'zombies' ? 0 : M.score[1], winner: M.winner, you: { score: SC.score, kills: st.kills, deaths: st.deaths, headshots: st.headshots, accuracy: st.shots ? 100 * st.hits / st.shots : 0 } },
+      { onPlayAgain: () => { UI.menus.hideEnd(); UI.hud.show(false); openLoadout('deploy'); }, onMainMenu: toMainMenu });
+  }
+  function restart() { UI.menus.hidePause(); startMatch(G.selection, { difficulty: G.settings.difficulty, bots: G.settings.bots }); }
+
+  /* ============================================================ menus */
+  function loadoutData(deploy) {
+    const cur = (!deploy && G.player && G.player.pendingLoadout) || G.selection;
+    return { weapons: Weapons.uiList(), selection: selOf(cur), settings: { difficulty: G.settings.difficulty, bots: G.settings.bots, map: G.settings.map, mode: G.settings.mode }, pickMap: deploy, music: !!(deploy && G.fromMenu), canCancel: !deploy || !!G.fromMenu, title: deploy ? 'DEPLOY' : 'CHANGE LOADOUT',
+      matchInfo: modeName() + '  ·  ' + (MAPS[G.settings.map] || MAPS.harbor).name + '  ·  FIRST TO ' + modeLimit() };
+  }
+  function openLoadout(mode) {   // 'deploy' | 'change' | 'pause'
+    const deploy = mode === 'deploy'; G.menuOpen = true; clearKeys(); if (deploy) G.phase = 'loadout'; else if (mode === 'change') releasePointer();
+    UI.menus.showLoadout(loadoutData(deploy), {
+      onChange: (sel) => { if (deploy) G.selection = selOf(sel); else if (G.player) Player.setPendingLoadout(sel); },
+      onDeploy: (sel, set) => {
+        UI.menus.hideLoadout(); G.menuOpen = false;
+        if (deploy) { if (window.OmniRooms && OmniRooms.connected) { const rm = OmniRooms.mode === 'zombies' ? 'zombies' : OmniRooms.mode === 'gunfight' ? 'gunfight' : OmniRooms.mode === 'ffa' ? 'ffa' : 'tdm'; set = Object.assign({}, set || {}, { bots: 0, mode: rm }); G.settings.bots = 0; G.settings.mode = rm; } startMatch(sel, set); return; }
+        G.selection = selOf(sel); Player.setPendingLoadout(sel);
+        if (set) { G.settings.difficulty = set.difficulty || G.settings.difficulty; G.settings.bots = set.bots || G.settings.bots; Bots.setDifficulty(G.settings.difficulty); }
+        if (mode === 'pause') resume(); else lockPointer();
+      },
+      onCancel: () => { UI.menus.hideLoadout(); G.menuOpen = false; if (deploy && G.fromMenu && window.OmniMenu) { G.phase = 'start'; OmniMenu.show(); return; } if (mode === 'pause') showPauseMenu(); else lockPointer(); }
+    });
+  }
+  function pauseData() {
+    const mp = MAPS[G.settings.map] || MAPS.harbor;
+    return { settings: Object.assign({}, G.settings), weapons: Weapons.uiList(), selection: Object.assign({}, G.selection),
+      matchInfo: modeName() + '  ·  ' + mp.name + '  ·  FIRST TO ' + modeLimit() };
+  }
+  function toMainMenu() {   /* leave the match and go back to the main menu */
+    lobbyOff();
+    UI.menus.hidePause(); UI.menus.hideLoadout(); G.menuOpen = false; G.netPauseMenu = false;
+    if (M.kc) endKillcam(true); if (M.bp) endBestPlay(); M.bp = null; M.bpDone = false; M.kc = null; M.kcKiller = null; Replay.reset(); UI.menus.hideKillcam(); UI.menus.hideDeath(); UI.menus.hideEnd();
+    hpDispose(); HP.on = false; UI.hud.setHardpoint(null); gfEnd();
+    UI.hud.show(false); UI.hud.showScoreboard(false); G.sbHeld = false; G.live = false; G.matchOver = false; G.phase = 'start'; G.fromMenu = false;
+    try { Sound.stopAmbient(); if (Sound.loop) Sound.loop('slide', false); } catch (e) { }
+    clearKeys(); releasePointer(); last = performance.now();
+    if (window.OmniMenu && OmniMenu.show) { if (OmniMenu.toMain) OmniMenu.toMain(); OmniMenu.show(); } else UI.menus.showStart({ onStart });
+  }
+  function showPauseMenu() {
+    UI.menus.showPause(pauseData(), { onResume: resume, onLoadout: () => { UI.menus.hidePause(); openLoadout('pause'); }, onRestart: restart, onMainMenu: toMainMenu,
+      onClass: (sel) => { G.selection = selOf(sel); Player.setPendingLoadout(sel); }, onSettings: applySettings });
+  }
+  function pause() {
+    if (G.phase !== 'playing' && G.phase !== 'countdown') return; if (G.menuOpen || M.over) return;
+    G.prevPhase = G.phase; G.netPauseMenu = !!(window.OmniRooms && OmniRooms.connected); if (G.netPauseMenu) G.netPauseOpenedAt = performance.now(); if (!G.netPauseMenu) G.phase = 'paused'; clearKeys(); UI.hud.showScoreboard(false); G.sbHeld = false; if (typeof Sound !== 'undefined' && Sound.loop) Sound.loop('slide', false);
+    if (G.netPauseMenu) G.menuOpen = true; releasePointer(); showPauseMenu();
+  }
+  function resume() { if (G.netPauseMenu) { UI.menus.hidePause(); G.menuOpen = false; G.netPauseMenu = false; last = performance.now(); lockPointer(); return; } if (G.phase !== 'paused') return; UI.menus.hidePause(); G.phase = G.prevPhase || 'playing'; G.menuOpen = false; last = performance.now(); lockPointer(); }
+  function savedSel() {   /* class last picked on the loadout screen */
+    try { const sv = JSON.parse(localStorage.getItem('omniClasses') || 'null'), r = sv && sv.c && sv.c[sv.a], ids = Weapons.uiList().map((w) => w.id); if (r && ids.indexOf(r[1]) >= 0 && ids.indexOf(r[2]) >= 0) return selOf({ primary: r[1], secondary: r[2], perks: r[3] }); } catch (e) { }
+    return null;
+  }
+  /* match settings (difficulty / bots / map) persist between sessions */
+  function loadMatch() {
+    try {
+      const d = JSON.parse(localStorage.getItem('omniMatch') || 'null'); if (!d) return;
+      if (!QS.has('diff') && ['noob', 'recruit', 'regular', 'veteran'].indexOf(d.difficulty) >= 0) G.settings.difficulty = d.difficulty;
+      if (!QS.has('bots') && [8, 12, 16].indexOf(+d.bots) >= 0) G.settings.bots = +d.bots;
+      if (!QS.has('map') && MAPS[d.map]) G.settings.map = d.map;
+      if (!QS.has('mode') && (d.mode === 'tdm' || d.mode === 'hardpoint' || d.mode === 'ffa' || d.mode === 'gunfight')) G.settings.mode = d.mode;
+    } catch (e) { }
+  }
+  function saveMatch() { try { localStorage.setItem('omniMatch', JSON.stringify({ difficulty: G.settings.difficulty, bots: G.settings.bots, map: G.settings.map, mode: G.settings.mode })); } catch (e) { } }
+  function menuHooks() {
+    loadMatch();
+    const audio = () => { try { Sound.init().then((ok) => { if (ok) { Sound.setMasterVolume(G.settings.volume); Sound.startAmbient(); } }); } catch (e) { console.warn('audio init failed', e); } };
+    return { settings: G.settings, controls: Controls, maps: Object.keys(MAPS).map((k) => ({ id: k, name: MAPS[k].name, tag: MAPS[k].tag })), getMap: () => G.settings.map, onMap(id) { if (MAPS[id] && (G.settings.mode !== 'gunfight' || id === GF_CFG.map)) { G.settings.map = id; saveMatch(); } },
+      getMatch: () => ({ difficulty: G.settings.difficulty, bots: G.settings.bots, map: G.settings.map, mode: G.settings.mode }), onMatch(k, v) {
+        if (k === 'map' ? !!MAPS[v] : k === 'mode' ? (v === 'tdm' || v === 'hardpoint' || v === 'ffa' || v === 'gunfight') : (k === 'difficulty' || k === 'bots')) {
+          if (k === 'map' && G.settings.mode === 'gunfight' && v !== GF_CFG.map) return;   /* Gunfight: Shipment only */
+          if (k === 'mode') { if (v === 'gunfight' && G.settings.mode !== 'gunfight') { G.gfPrevMap = G.settings.map; G.settings.map = GF_CFG.map; } else if (v !== 'gunfight' && G.settings.mode === 'gunfight' && G.gfPrevMap && MAPS[G.gfPrevMap]) { G.settings.map = G.gfPrevMap; } }
+          G.settings[k] = v; saveMatch();
+        }
+      },
+      onStart() { audio(); G.fromMenu = false; OmniMenu.hide(); G.phase = 'loadout'; const sv = savedSel() || G.selection; startMatch(sv, { difficulty: G.settings.difficulty, bots: G.settings.bots }); },
+      onLoadout() { audio(); G.fromMenu = true; openLoadout('deploy'); },
+      onSettings(s) { applySettings(Object.assign({}, G.settings, s)); },
+      onQuit() { try { window.close(); } catch (e) { } },
+      getMedals: () => medalList() };
+  }
+  function onStart() {
+    try { Sound.init().then((ok) => { if (ok) { Sound.setMasterVolume(G.settings.volume); Sound.startAmbient(); } }); } catch (e) { console.warn('audio init failed', e); }
+    UI.menus.hideStart(); openLoadout('deploy');
+  }
+
+  /* ============================================================ input */
+  const keys = {}, edge = {}, mouse = { dx: 0, dy: 0, b0: false, b2: false, p0: false, wheel: 0 };
+  const BOUND = {};   /* every code that is bound to something (gets preventDefault) */
+  function rebuildBound() { for (const k in BOUND) delete BOUND[k]; const b = Controls.binds; for (const a in b) for (const c of b[a]) if (c) BOUND[c] = 1; }
+  const down = (a) => { const b = Controls.binds[a]; return !!(b && ((b[0] && keys[b[0]]) || (b[1] && keys[b[1]]))); };
+  const hit = (a) => { const b = Controls.binds[a]; return !!(b && ((b[0] && edge[b[0]]) || (b[1] && edge[b[1]]))); };
+  const isBound = (a, c) => { const b = Controls.binds[a]; return !!(b && c && (b[0] === c || b[1] === c)); };
+  /* toggle state for the hold/toggle options */
+  const T = { sprint: false, crouch: false, prone: false, ads: false };
+  function resetToggles() { T.sprint = T.crouch = T.prone = T.ads = false; }
+  const INP = { slidePressed: false, pronePressed: false, diveMode: 'smart', mx: 0, my: 0, fwd: false, back: false, left: false, right: false, sprint: false, sprintPressed: false, crouch: false, crouchPressed: false, dive: false, divePressed: false, jump: false, jumpPressed: false, fire: false, firePressed: false, ads: false, reload: false, inspect: false, pickup: false, drop: false, tactical: false, lethal: false, slot1: false, slot2: false, slot3: false, wheel: 0 };
+  G.INP = INP;
+  function inputActive() { return (G.phase === 'playing' || G.phase === 'countdown') && !G.menuOpen && !(M.over && M.shown); }   /* M.shown = the end screen is up */
+  function clearKeys() { resetToggles(); for (const k in keys) keys[k] = false; for (const k in edge) edge[k] = false; mouse.b0 = mouse.b2 = mouse.p0 = false; mouse.dx = mouse.dy = 0; mouse.wheel = 0; if (G.sbHeld) { G.sbHeld = false; UI.hud.showScoreboard(false); } }
+  /* `gesture` = the request comes straight from a mouse click (the only kind a browser always accepts). Failed requests that did NOT come from a click
+     (resuming with Esc, the auto-lock on deploy) are expected, and never count against pointer lock: the player just gets a "click to capture" prompt. */
+  function lockPointer(gesture) {
+    if (!G.canvas || (M.over && M.shown)) return;                                   /* never grab the mouse over the end screen */
+    if (!G.canvas.requestPointerLock) { G.noLock = true; return; }                  /* not supported at all: use the window mouse */
+    if (G.noLock && !gesture) return;                                               /* window-mouse fallback: only re-try on a real click */
+    G.lockGesture = !!gesture;
+    const plain = () => { try { const r = G.canvas.requestPointerLock(); if (r && r.catch) r.catch((err) => { onLockError(err); }); } catch (e) { onLockError(e); } };
+    if (G.rawOK === false) { plain(); return; }
+    /* RAW INPUT: unadjustedMovement skips the OS pointer-acceleration curve (Windows "Enhance pointer precision"), so counts map 1:1 to view angle like in CoD.
+       Browsers/platforms that can't do it reject with NotSupportedError: remember that and fall back to the normal lock. */
+    G.rawTryT = performance.now();
+    try {
+      const r = G.canvas.requestPointerLock({ unadjustedMovement: true });
+      if (r && r.catch) r.catch((err) => { G.rawTryT = 0; if (err && err.name === 'NotSupportedError') { G.rawOK = false; plain(); } else onLockError(err); });
+    } catch (e) { G.rawTryT = 0; G.rawOK = false; plain(); }
+  }
+  function releasePointer() { if (document.pointerLockElement) { G.expectUnlock = true; try { document.exitPointerLock(); } catch (e) { G.expectUnlock = false; } } }
+  /* A failed request is almost always the browser's short cooldown after Esc, or a request that was not triggered by a click - never a reason to give up for the
+     rest of the session: the next click simply tries again, and any successful lock leaves window-mouse mode. Only a sandboxed page (SecurityError) or several
+     failed CLICKS in a row switch to the window-mouse fallback (which still re-tries on every click). */
+  function onLockError(err) {
+    if (G.rawTryT && performance.now() - G.rawTryT < 300 && !(err && err.name)) return;   /* the pointerlockerror EVENT from a raw-input probe: the promise handler decides whether to fall back */
+    const sec = !!(err && err.name === 'SecurityError'), now = performance.now(), dup = now - (G.lockErrT || -1e9) < 250;   // the error event and the promise rejection report the same failure
+    if (dup && !sec) return;
+    if (!dup) { G.lockErrT = now; if (G.lockGesture) G.lockFails = (G.lockFails | 0) + 1; }
+    if (sec || (G.lockFails | 0) >= 4) { if (!G.noLock) { G.noLock = true; if (inputActive()) UI.hud.toast('POINTER LOCK UNAVAILABLE  —  USING WINDOW MOUSE', 'warn'); } }
+    else if (!dup && inputActive()) UI.hud.toast('CLICK TO CAPTURE MOUSE', 'warn');
+  }
+  /* window-mouse fallback only: hide the OS cursor while playing (it would sit on top of the game); every menu gets it back */
+  function syncCursor() { const hide = !!(G.noLock && !G.locked && inputActive()); if (hide !== G.curHidden) { G.curHidden = hide; document.body.style.cursor = hide ? 'none' : ''; } }
+  function bindEvents() {
+    rebuildBound(); window.addEventListener('resize', onResize);
+    document.addEventListener('pointerlockchange', () => {
+      G.locked = document.pointerLockElement === G.canvas; if (G.locked) { G.lockFails = 0; G.noLock = false; if (M.over && M.shown) releasePointer(); } clearKeys();
+      if (!G.locked && !G.expectUnlock && (G.phase === 'playing' || G.phase === 'countdown') && !G.menuOpen && !M.over) pause();
+      G.expectUnlock = false;
+    });
+    document.addEventListener('pointerlockerror', onLockError);
+    window.addEventListener('blur', () => { clearKeys(); pause(); });
+    document.addEventListener('visibilitychange', () => { if (document.hidden) { clearKeys(); pause(); } });
+    window.addEventListener('keydown', (e) => {
+      if ((G.phase === 'paused' || G.netPauseMenu) && e.code === 'Escape' && !e.repeat) { if (G.netPauseMenu) { if (performance.now() - (G.netPauseOpenedAt || 0) > 300) resume(); } else if (!G.menuOpen) resume(); return; }
+      if (!inputActive()) return;
+      if (BOUND[e.code]) e.preventDefault(); if (e.repeat) return;
+      if (e.code === 'Escape') { pause(); return; }
+      if (isBound('scoreboard', e.code)) { G.sbHeld = true; G.sbT = 0; UI.hud.showScoreboard(true); return; }
+      if (isBound('loadout', e.code) && G.player && !G.player.alive && !M.over) { openLoadout('change'); return; }
+      if (!keys[e.code]) edge[e.code] = true; keys[e.code] = true;
+    });
+    window.addEventListener('keyup', (e) => { if (isBound('scoreboard', e.code)) { if (G.sbHeld) { G.sbHeld = false; UI.hud.showScoreboard(false); } } keys[e.code] = false; });
+    window.addEventListener('mousemove', (e) => { if (!inputActive() || !(G.locked || G.noLock)) return; mouse.dx += e.movementX || 0; mouse.dy += e.movementY || 0; });
+    window.addEventListener('mousedown', (e) => {
+      if (!inputActive()) return; if (!G.locked) { lockPointer(true); if (!G.noLock) return; }
+      const mc = 'Mouse' + e.button; if (!keys[mc]) edge[mc] = true; keys[mc] = true; e.preventDefault();
+    });
+    window.addEventListener('mouseup', (e) => { keys['Mouse' + e.button] = false; });
+    window.addEventListener('wheel', (e) => { if (inputActive()) { if (G.settings.wheelSwitch) mouse.wheel += e.deltaY; e.preventDefault(); } }, { passive: false });
+    window.addEventListener('contextmenu', (e) => { e.preventDefault(); });
+    window.addEventListener('error', (e) => { console.error('[window.error]', e.message, e.filename, e.lineno); });
+    window.addEventListener('unhandledrejection', (e) => { console.error('[unhandledrejection]', e.reason); });
+  }
+  function buildInput() {
+    const k = keys, e = edge, I = INP;
+    I.mx = mouse.dx; I.my = mouse.dy; mouse.dx = mouse.dy = 0;
+    I.fwd = down('forward'); I.back = down('back'); I.left = down('left'); I.right = down('right');
+    const S = G.settings, P = G.player, alive = !!(P && P.alive && G.live), mode = P ? P.mode : 'ground', moving = I.fwd || I.back || I.left || I.right;
+    const spP = hit('sprint'), crP = hit('crouch'), dvP = hit('dive'), prP = hit('prone'), adP = hit('ads');
+    /* crouch (hold / toggle). In toggle mode the crouch key still slides when sprinting instead of toggling the stance. */
+    const slideTry = crP && S.slideOnCrouch && alive && P.sprinting && P.hSpeed > 4.4 && !P.crouch;
+    if (S.crouchMode === 'toggle') {
+      if (!alive || mode === 'air' || mode === 'mantle' || mode === 'dive' || mode === 'prone') T.crouch = false;
+      else if (crP && !slideTry && mode !== 'slide') T.crouch = !T.crouch;
+      if (spP) T.crouch = false;
+      I.crouch = T.crouch;
+    } else { T.crouch = false; I.crouch = down('crouch'); }
+    I.crouchPressed = crP; I.slidePressed = (S.slideOnCrouch && crP) || hit('slide');
+    /* sprint (hold / toggle). Toggle sprint ends on stance change, prone, or (optionally) when you stop moving. */
+    if (S.sprintMode === 'toggle') {
+      if (!alive) T.sprint = false;
+      else {
+        if (spP) T.sprint = mode === 'slide' ? true : !T.sprint;
+        if (S.sprintAutoCancel && !moving && mode !== 'slide' && mode !== 'air' && mode !== 'dive') T.sprint = false;
+        if (I.crouch || (mode === 'prone' && !spP)) T.sprint = false;   /* a sprint tap while prone stands you up (toggle sprint stays armed for that press) */
+      }
+      I.sprint = T.sprint;
+    } else { T.sprint = false; I.sprint = down('sprint'); }
+    I.sprintPressed = spP;
+    /* dive / prone (hold = stay down while held; toggle = press again to get up) */
+    if (S.proneMode === 'toggle') {
+      if (!alive || mode === 'ground' || mode === 'slide' || mode === 'mantle') T.prone = false;
+      if (dvP || prP) { if (mode === 'prone') T.prone = false; else if (alive && (mode === 'ground' || mode === 'air' || mode === 'slide')) T.prone = true; }
+      I.dive = T.prone;
+    } else { T.prone = false; I.dive = down('dive') || down('prone'); }
+    I.divePressed = dvP; I.pronePressed = prP; I.diveMode = S.diveMode === 'dive' || S.diveMode === 'prone' ? S.diveMode : 'smart';
+    I.jump = down('jump'); I.jumpPressed = hit('jump');
+    /* aim (hold / toggle) */
+    if (S.adsMode === 'toggle') { if (!alive || spP || hit('slot1') || hit('slot2') || hit('slot3')) T.ads = false; else if (adP) T.ads = !T.ads; I.ads = T.ads; } else { T.ads = false; I.ads = down('ads'); }
+    I.fire = down('fire'); I.firePressed = hit('fire');
+    I.akR = false; I.akRP = false; if (P && P.akOn && alive) { I.akR = down('ads'); I.akRP = adP; T.ads = false; I.ads = false; }   /* Akimbo: RMB is the right trigger, not ADS */ I.skipPressed = hit('jump') || !!e.Space;
+    I.reload = hit('reload'); I.inspect = hit('inspect'); I.pickup = hit('pickup'); I.pickupHeld = down('pickup'); I.tactical = hit('tactical'); I.lethal = hit('lethal'); I.tacticalHeld = down('tactical'); I.lethalHeld = down('lethal'); I.slot1 = hit('slot1'); I.slot2 = hit('slot2'); I.slot3 = hit('slot3');
+    I.wheel = mouse.wheel > 0 ? 1 : mouse.wheel < 0 ? -1 : 0; mouse.wheel = 0; if (I.wheel && T.ads) T.ads = false; for (const n in e) e[n] = false;
+    if (G.override) for (const n in G.override) I[n] = G.override[n];
+  }
+
+  /* ============================================================ per-frame simulation */
+  const MKP = [], MKL = []; let markT = 0, sbT = 0, projT = 0;
+  function updateVis() {
+    const cp = G.camera.position, E = G.entities, P = G.player;
+    for (let i = 0; i < E.length; i++) { const e = E[i]; if (e === P) continue; e.vis2P = e.alive && Combat.canSee(cp.x, cp.y, cp.z, e) > 0; }
+  }
+  function markers() {
+    const cam = G.camera, w = innerWidth, h = innerHeight, E = G.entities, P = G.player; let n = 0, best = -1, bestD = 1e9; cam.updateMatrixWorld();
+    for (let i = 0; i < E.length; i++) {
+      const e = E[i]; if (e === P || !e.alive || !e.vis2P) continue;   /* any range, but only while in line of sight */
+      const dx = e.pos.x - cam.position.x, dz = e.pos.z - cam.position.z, d = Math.sqrt(dx * dx + dz * dz), ally = e.team === P.team;
+      _v.set(e.pos.x, e.pos.y + (ally ? 2.15 : 2.05), e.pos.z).project(cam); if (_v.z > 1 || _v.z < -1) continue;
+      const sx = (_v.x * 0.5 + 0.5) * w, sy = (-_v.y * 0.5 + 0.5) * h; if (sx < -40 || sx > w + 40 || sy < -40 || sy > h + 40) continue;
+      let m = MKP[n]; if (!m) m = MKP[n] = { x: 0, y: 0, kind: 'ally', name: '', dist: 0, hp: 1, aim: false };
+      m.x = sx; m.y = sy; m.kind = ally ? 'ally' : 'enemy'; m.name = e.name; m.dist = d; m.hp = e.hp / (e.maxHp || 100); m.aim = false;
+      if (!ally) {   /* is the crosshair on / around this enemy's body? (box from head marker to feet, padded) */
+        _v.set(e.pos.x, e.pos.y, e.pos.z).project(cam); const fy = (-_v.y * 0.5 + 0.5) * h, halfH = Math.abs(fy - sy) * 0.5, midY = (fy + sy) * 0.5;
+        const ax = Math.abs(sx - w * 0.5), ay = Math.abs(midY - h * 0.5), padPx = h * 0.05;
+        if (ax < halfH * 0.55 + padPx && ay < halfH + padPx) { const dd = ax * ax + ay * ay; if (dd < bestD) { bestD = dd; best = n; } }
+      }
+      MKL[n] = m; n++;
+    }
+    if (best >= 0) MKL[best].aim = true;   /* only the enemy nearest the crosshair shows its health bar */
+    MKL.length = n; UI.hud.setMarkers(MKL);
+  }
+  function scoreRows() { const out = []; for (const e of G.entities) out.push({ name: e.name, team: e.team, kills: e.stats.kills, deaths: e.stats.deaths, isPlayer: !!e.isPlayer }); return out; }
+  function step(dt) {
+    G.time += dt; const P = G.player, I = INP; buildInput();
+    if (G.phase === 'countdown' && !(GF.on && GF.st === 'wait')) {
+      M.cdT -= dt; const n = Math.ceil(M.cdT - 0.4);
+      if (n !== M.cdN) { M.cdN = n; if (n > 0) { UI.hud.toast(GF.on ? 'ROUND ' + GF.round + ' STARTS IN ' + n : 'MATCH STARTS IN ' + n, 'info'); snd('countdown', {}); } }
+      if (M.cdT <= 0.4 && !G.live) { G.live = true; G.phase = 'playing'; UI.hud.toast('FIGHT', 'kill'); snd('spawn', {}); if (GF.on) gfLive(); }
+    }
+    if (!G.live) { I.fwd = I.back = I.left = I.right = I.sprint = I.sprintPressed = I.crouch = I.crouchPressed = I.slidePressed = I.pronePressed = I.dive = I.divePressed = I.jump = I.jumpPressed = I.fire = I.firePressed = I.ads = I.akR = I.akRP = I.reload = I.pickup = I.tactical = I.lethal = false; }
+    if (G.menuOpen) { I.mx = I.my = 0; }
+    if (inputActive() && !G.locked && !G.noLock) { G.lockWait = (G.lockWait || 0) + dt; if (G.lockWait > 0.8 && !G.lockNag) { G.lockNag = true; UI.hud.toast('CLICK TO CAPTURE MOUSE', 'warn'); } } else { G.lockWait = 0; G.lockNag = false; }
+    if (M.bp) { /* best-play replay drives the camera */ }
+    else if (P.alive) Player.update(dt, I);
+    else {
+      Player.updateDead(dt); if (M.mode === 'zombies') { M.respawnT = 5; M.kc = null; }
+      if (G.live && !M.over) {
+        if (M.kc) {
+          M.kc.t += dt; killcamCam(dt);
+          if (G.menuOpen) endKillcam(true);
+          else if ((M.kc.t > 0.35 && I.skipPressed) || Replay.done) { endKillcam(false); respawn(P); }
+        } else {
+          M.respawnT -= dt; UI.menus.updateDeath(Math.max(0, M.respawnT));
+          if (M.respawnT <= 0 && (!G.menuOpen || G.netPauseMenu)) { if (G.settings.killcam && M.kcKiller && !M.kcDone && startKillcam()) { } else respawn(P); }
+        }
+      } else if (M.kc) endKillcam(true);
+    }
+    Bots.update(dt); if (M.mode === 'zombies') Zombies.update(dt); Combat.update(dt); updatePickups(dt); if (G.live && !M.over) { autoPickups(); vultureScavenge(); } FX.update(dt, G.camera.position); if (typeof Equipment !== 'undefined') Equipment.update(dt, I); if (typeof Killstreaks !== 'undefined') Killstreaks.update(dt, I); Replay.record(dt); if (BP.pendT > 0 && G.time >= BP.pendT) bpSnap();
+    if (G.live && !M.over && !GF.on && M.mode !== 'zombies') { M.timeLeft -= dt; if (M.timeLeft <= 0) { M.timeLeft = 0; endMatch(); } }
+    if (M.over && !M.shown) {
+      if (M.bp) { bestPlayCam(dt); if (Replay.done || (M.bp.t > 0.6 && I.skipPressed)) { endBestPlay(); showEnd(); } }
+      else { M.endT -= dt; if (M.endT <= 0) { if (!M.bpDone && startBestPlay()) bestPlayCam(0); else showEnd(); } }
+    }
+    hpUpdate(dt); gfUpdate(dt); UI.hud.setTimer(GF.on ? GF.clock : M.timeLeft); UI.hud.setScore(M.score[0], M.score[1], M.limit, M.mode === 'hardpoint' ? 'HARDPOINT' : M.mode === 'zombies' ? 'DEAD AIR  ·  ROUND ' + Zombies.round : GF.on ? 'GUNFIGHT  ·  ROUND ' + GF.round : 'TEAM DEATHMATCH'); hpHud(); gfTick();
+    scoreTrack(); markT -= dt; if (markT <= 0) { markT = 0.12; updateVis(); } markers();
+    if (G.sbHeld) { sbT -= dt; if (sbT <= 0) { sbT = 0.25; UI.hud.setScoreboard(scoreRows(), M.mode === 'hardpoint' ? M.score : null); } }
+    const cam = G.camera; cam.getWorldDirection(_f); if (typeof Sound !== 'undefined' && Sound.ready) Sound.setListener(cam.position.x, cam.position.y, cam.position.z, _f.x, _f.y, _f.z, 0, 1, 0);
+    G.map.update(dt, cam.position); G.map.focusShadow(cam.position.x, 0, cam.position.z);
+  }
+  /* ---- multiplayer lobby background: slow cinematic shots of the selected map behind the room's 3D lobby menu ---- */
+  const LS = { i: -1, t: 0, d: 11, a0: 0, fade: null, seq: 0 };
+  function lobbyFadeEl() {
+    if (LS.fade && LS.fade.isConnected) return LS.fade;
+    const e = document.createElement('div'); e.id = 'omLobbyFade'; e.style.cssText = 'position:fixed;inset:0;z-index:94;background:#000;pointer-events:none;opacity:1';
+    document.body.appendChild(e); LS.fade = e; return e;
+  }
+  function lobbyOff() { G.lobby = false; if (LS.fade) { LS.fade.remove(); LS.fade = null; } }
+  /* hand-placed shots per map (a -> b camera position, la -> lb look-at, over one shot). Dead Air is a night map lit only by its lamps, so its shots stay indoors and tour all five rooms in turn: LOBBY, STUDIO A + CONTROL ROOM (west wing), BACKSTAGE + MACHINE ROOM (east wing). Maps without an entry get the generic slow orbit / push-in / sweep / pull-out. */
+  const LOBBY_SHOTS = {
+    deadair: [
+      { a: [4.5, 2.0, 6.6], b: [1.0, 2.0, 6.4], la: [-6, 1.6, -7.5], lb: [-3, 1.5, -7], fov: 60 },        /* LOBBY: across the lobby to the MP5 plaque and reception desk */
+      { a: [-14.5, 1.6, -1.0], b: [-16.6, 1.5, -2.4], la: [-22, 1.3, -3.5], lb: [-22, 1.4, -3.5], fov: 58 },   /* STUDIO A: slow push-in on the news desk and arched backdrop */
+      { a: [-11.2, 1.7, -11.6], b: [-13.2, 1.7, -12.2], la: [-16, 1.5, -14.7], lb: [-15.4, 1.6, -14.7], fov: 60 },   /* CONTROL ROOM: drift toward the wall of static-filled monitors */
+      { a: [11.5, 1.7, 3.5], b: [14.5, 1.7, 3.0], la: [23, 1.8, -1], lb: [23, 1.8, -2.2], fov: 62 },       /* BACKSTAGE: truck past the row of scenery flats on the east wall */
+      { a: [23.0, 1.6, -9.6], b: [20.0, 1.6, -9.8], la: [16, 1.4, -11.7], lb: [13, 1.4, -11.7], fov: 62 },   /* MACHINE ROOM: east to west along the fronts of the transmitter racks */
+      { a: [-2.6, 1.7, -4.4], b: [2.6, 1.7, -4.4], la: [0, 1.7, 8.2], lb: [0, 1.7, 8.2], fov: 62 },         /* LOBBY: slow lateral dolly toward the barricaded front door and windows */
+      { a: [-17, 1.7, -1.0], b: [-18.6, 1.8, 0.8], la: [-19.5, 0.9, 6.6], lb: [-19.5, 1.0, 6.9], fov: 60 },   /* STUDIO A: creep toward the talk-show sofa on its riser */
+      { a: [-17.2, 1.6, -10.4], b: [-19.4, 1.6, -10.4], la: [-22.5, 1.2, -13.3], lb: [-23.0, 1.3, -12.0], fov: 62 },   /* CONTROL ROOM: slide toward the audio console and tape decks */
+      { a: [13, 1.6, 0.5], b: [15, 1.6, 1.8], la: [20, 1.4, 5.2], lb: [20.4, 1.4, 5.2], fov: 60 },          /* BACKSTAGE: drift toward the costume racks */
+      { a: [12, 1.6, -12.9], b: [15, 1.6, -12.9], la: [13, 1.5, -14.2], lb: [16, 1.5, -14.2], fov: 68 },    /* MACHINE ROOM: lateral dolly down the narrow gap between the rack rows */
+      { a: [0, 2.8, 6.9], b: [0, 1.9, 3.4], la: [0, 1.5, 0], lb: [0, 1.6, -1], fov: 58 },                   /* LOBBY: push-in on the round information kiosk */
+      { a: [-12, 1.7, 0], b: [-16, 1.7, 0], la: [-19, 5.2, 0], lb: [-21, 5.4, 0], fov: 64 },                /* STUDIO A: tracking shot under the hanging lamp grid */
+      { a: [-14, 1.6, -11.6], b: [-14, 1.6, -10.8], la: [-14, 1.5, -4], lb: [-15.5, 1.5, -3], fov: 60 },    /* CONTROL ROOM: ease toward the window looking out over the studio floor */
+      { a: [12.2, 1.6, -3.0], b: [13.6, 1.6, -2.0], la: [18, 1.0, -1.2], lb: [18, 1.4, -1.5], fov: 60 },    /* BACKSTAGE: push-in on the stage wagon and its flat */
+      { a: [17.5, 1.7, -9.0], b: [15.2, 1.6, -9.6], la: [12.4, 1.0, -9.3], lb: [12.2, 1.0, -9.3], fov: 60 },   /* MACHINE ROOM: approach the engineer's desk */
+      { a: [8.6, 1.9, -4.2], b: [8.6, 1.9, 1.5], la: [-4, 1.3, -1], lb: [-4, 1.3, 2.5], fov: 64 },          /* LOBBY: truck along the east wall */
+      { a: [-12.2, 1.7, 3.0], b: [-12.2, 1.7, 0.5], la: [-14, 1.8, -8.2], lb: [-14.5, 1.8, -8.2], fov: 60 },  /* STUDIO A: glide toward the control-room window and its glowing monitor wall */
+      { a: [12, 3.6, 6.5], b: [13.5, 2.8, 5.0], la: [20.5, 2.0, 0], lb: [20.5, 1.8, -0.5], fov: 62 },       /* BACKSTAGE: high, easing down past the scaffold tower */
+      { a: [11.0, 2.8, -9.4], b: [12.4, 2.5, -9.8], la: [22, 1.6, -13], lb: [22.5, 1.6, -12.5], fov: 64 },  /* MACHINE ROOM: high from the west end, looking down the length of the room */
+      { a: [-8.5, 3.3, 6.5], b: [-8.5, 2.3, 4.6], la: [4, 1.2, -4], lb: [3, 1.2, -3], fov: 62 }              /* LOBBY: high corner, easing down */
+    ]
+  };
+  function lobbyShot(dt) {
+    const mc = G.map.menu, cam = G.camera, tbl = LOBBY_SHOTS[G.mapId], n = tbl ? tbl.length : 4;
+    if (LS.i < 0) { LS.i = 0; LS.t = 0; LS.a0 = Math.random() * 6.283; }
+    LS.t += dt; if (LS.t >= LS.d) { LS.t -= LS.d; LS.i = (LS.i + 1) % n; LS.a0 += 1.6 + Math.random() * 2.4; }
+    LS.i %= n; const u = LS.t / LS.d; let fov = 62;
+    if (tbl) {
+      const s = tbl[LS.i], k = (v, w) => v + (w - v) * u; fov = s.fov || 62;
+      cam.position.set(k(s.a[0], s.b[0]), k(s.a[1], s.b[1]), k(s.a[2], s.b[2]));
+      if (Math.abs(cam.fov - fov) > 0.01) { cam.fov = fov; cam.updateProjectionMatrix(); }
+      cam.lookAt(k(s.la[0], s.lb[0]), k(s.la[1], s.lb[1]), k(s.la[2], s.lb[2]));
+    } else {
+      const r = mc ? mc.r : 64, h = mc ? mc.h : 15, lk = mc ? mc.look : [0, 3.5, 0], e = u * u * (3 - 2 * u); let a = LS.a0, rad = r, hh = h, ly = lk[1];
+      switch (LS.i) {
+        case 0: a += u * 0.5; hh = h * (1 + 0.05 * Math.sin(u * Math.PI)); break;                         /* slow high orbit */
+        case 1: rad = r * (1.12 - 0.3 * e); hh = h * (1.02 - 0.3 * e); fov = 58; break;                     /* slow push-in */
+        case 2: a -= u * 0.45; rad = r * 0.86; hh = h * 0.62; fov = 66; ly = lk[1] + 0.8; break;            /* lower sweep the other way */
+        default: a += u * 0.2; rad = r * (0.78 + 0.34 * e); hh = h * (0.58 + 0.45 * e); fov = 60;           /* rising pull-out */
+      }
+      cam.position.set(Math.sin(a) * rad, hh, Math.cos(a) * rad * 0.7);
+      if (Math.abs(cam.fov - fov) > 0.01) { cam.fov = fov; cam.updateProjectionMatrix(); }
+      cam.lookAt(lk[0], ly, lk[2]);
+    }
+    const f = Math.min(1, Math.min(LS.t, LS.d - LS.t) / 1.1); lobbyFadeEl().style.opacity = (1 - f * f * (3 - 2 * f)).toFixed(3);   /* dip to black between shots */
+    G.map.update(dt, cam.position); G.map.focusShadow(0, 0, 0); FX.update(dt, cam.position);
+  }
+  async function lobbyEnter(id) {
+    if (!MAPS[id]) id = 'deadair';
+    if (G.phase === 'loading') return;
+    if (G.matchOver || G.phase === 'playing' || G.phase === 'countdown' || G.phase === 'paused') toMainMenu();
+    if (!G.lobby) LS.i = -1;
+    G.lobby = true; G.phase = 'lobby'; G.menuOpen = false; lobbyFadeEl();
+    if (window.OmniMenu && OmniMenu.hide) OmniMenu.hide();
+    if (id !== G.mapId) {
+      const my = ++LS.seq; UI.menus.showLoading('LOADING LOBBY', 0.4); await tick(40);

@@ -1,0 +1,901 @@
+    M.sign = new THREE.MeshStandardMaterial({ roughness: 0.7, map: U.texture(cvs(512, 128, (x, w, h) => {
+      x.fillStyle = '#f2ecd8'; x.fillRect(0, 0, w, h); x.strokeStyle = '#b03a2a'; x.lineWidth = 8; x.strokeRect(4, 4, w - 8, h - 8);
+      x.fillStyle = '#b03a2a'; x.font = 'bold 46px Arial, Helvetica, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('WELCOME TO NUKETOWN', w / 2, h / 2 + 2, w - 40);
+    }), { aniso: 4, clamp: true }) });
+
+    /* desert sky: blue + clouds + two layers of hills (all periodic so the seam is invisible) */
+    const skyTex = U.texture(cvs(1024, 256, (x, w, h) => {
+      const hz = h * 0.5, r = U.rng(31), g = x.createLinearGradient(0, 0, 0, hz);
+      g.addColorStop(0, '#2f78d8'); g.addColorStop(0.7, '#86bff0'); g.addColorStop(1, '#e4eef2'); x.fillStyle = g; x.fillRect(0, 0, w, hz);
+      x.fillStyle = '#c9a06c'; x.fillRect(0, hz, w, hz);
+      for (let i = 0; i < 40; i++) { const cx = r() * w, cy = hz * (0.12 + r() * 0.6), rw = 30 + r() * 80, gr = x.createRadialGradient(cx, cy, 1, cx, cy, rw); gr.addColorStop(0, 'rgba(255,255,255,0.6)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); x.save(); x.translate(cx, cy); x.scale(1, 0.24); x.translate(-cx, -cy); x.fillStyle = gr; x.fillRect(cx - rw, cy - rw, rw * 2, rw * 2); x.restore(); }
+      for (const L of [['#98a0ae', 26, 6, 1.3], ['#b8905e', 14, 0, 4.1]]) {
+        x.fillStyle = L[0]; x.beginPath(); x.moveTo(0, hz + 3);
+        for (let px = 0; px <= w; px += 4) { const t = px / w * 6.2832, a = L[3]; x.lineTo(px, hz - L[2] - L[1] * (0.5 + 0.25 * Math.sin(3 * t + a) + 0.15 * Math.sin(7 * t + 2 * a) + 0.1 * Math.sin(13 * t + 3 * a))); }
+        x.lineTo(w, hz + 3); x.closePath(); x.fill();
+      }
+    }), { aniso: 4 });
+
+    /* ---------- primitives (all take the west-half coordinates; S mirrors them) ---------- */
+    function box(x0, y0, z0, x1, y1, z1, mat, o) {
+      o = o || {}; let t;
+      if (S < 0) { x0 = -x0; x1 = -x1; z0 = -z0; z1 = -z1; }
+      if (x1 < x0) { t = x0; x0 = x1; x1 = t; } if (z1 < z0) { t = z0; z0 = z1; z1 = t; }
+      const w = x1 - x0, h = y1 - y0, d = z1 - z0; if (w <= 0 || h <= 0 || d <= 0) return;
+      if (o.vis !== false) { const g = new THREE.BoxGeometry(w, h, d); g.translate((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2); worldUV(g, TS[mat] || 1); bld((x0 + x1) / 2, (z0 + z1) / 2, (y0 + y1) / 2).geo(g, mat, null, o.color); }
+      if (o.col !== false) cols.push({ t: 'box', min: [x0, y0, z0], max: [x1, y1, z1], mat: PHYS[mat] || 'concrete', pass: !!o.pass, solid: o.solid !== false });
+    }
+    function cylC(x, z, r, y0, y1, mat, o) {
+      o = o || {}; x *= S; z *= S; bld(x, z, (y0 + y1) / 2).cyl(r, r, y1 - y0, x, (y0 + y1) / 2, z, mat, { axis: 'y', color: o.color, seg: o.seg || 12 });
+      if (o.col !== false) cols.push({ t: 'cyl', x: x, z: z, r: r, y0: y0, y1: y1, mat: PHYS[mat] || 'concrete' });
+    }
+    function plane(x0, z0, x1, z1, y, mat, color) {
+      if (S < 0) { x0 = -x0; x1 = -x1; z0 = -z0; z1 = -z1; } const ax = Math.min(x0, x1), bx = Math.max(x0, x1), az = Math.min(z0, z1), bz = Math.max(z0, z1);
+      const g = new THREE.PlaneGeometry(bx - ax, bz - az); g.rotateX(-Math.PI / 2); g.translate((ax + bx) / 2, y, (az + bz) / 2); worldUV(g, TS[mat] || 3); bld((ax + bx) / 2, (az + bz) / 2, y).geo(g, mat, null, color === undefined ? 0xffffff : color);
+    }
+    const ball = (x, y, z, r, color) => bld(x * S, z * S, y).sphere(r, x * S, y, z * S, 'foliage', { color: color, seg: 10, seg2: 8 });
+    const op = (a, b, y0, y1) => ({ a: a, b: b, y0: y0, y1: y1 });
+    function wall(ax, pos, a0, a1, t, y0, y1, ops, mat, color) {      // ax 'x': runs along x at z=pos; 'z': runs along z at x=pos
+      segs(a0, a1, y0, y1, ops, (a, b, ya, yb) => (ax === 'x' ? box(a, ya, pos - t / 2, b, yb, pos + t / 2, mat, { color: color }) : box(pos - t / 2, ya, a, pos + t / 2, yb, b, mat, { color: color })));
+    }
+    function stairs(ax, az, w, n, rise, tread, mat, color) { for (let i = 0; i < n; i++) box(ax - (i + 1) * tread, 0, az - w / 2, ax - i * tread, rise * (i + 1), az + w / 2, mat, { color: color }); }   // ascends toward -x
+    const crate = (x, z, n) => { for (let i = 0; i < (n || 1); i++) box(x, i * 1.2, z, x + 1.2, i * 1.2 + 1.2, z + 1.2, 'wood', { color: [0x8a6a3a, 0x7a5c32, 0x927040][Math.abs(i + ((x * 3) | 0)) % 3] }); };
+    const barrel = (x, z, c) => cylC(x, z, 0.36, 0, 1.0, 'metal', { color: c || 0x3c6a3c });
+    function car(x, z, w, l, color, tall) {      // parked along z
+      box(x - w / 2, 0.3, z - l / 2, x + w / 2, 0.95, z + l / 2, 'paint', { color: color });
+      box(x - w / 2 + 0.1, 0.95, z - l * 0.22, x + w / 2 - 0.1, tall ? 1.85 : 1.55, z + l * 0.26, 'paint', { color: color });
+      for (const s of [-1, 1]) { box(x + s * (w / 2 - 0.09) - 0.02, 1.05, z - l * 0.2, x + s * (w / 2 - 0.09) + 0.02, tall ? 1.75 : 1.45, z + l * 0.24, 'paint', { col: false, color: 0x1c2630 }); for (const e of [-1, 1]) box(x + s * (w / 2 - 0.1) - 0.12, 0, z + e * l * 0.33 - 0.32, x + s * (w / 2 - 0.1) + 0.12, 0.62, z + e * l * 0.33 + 0.32, 'rubber', { col: false, color: 0x161616 }); }
+    }
+    const fence = (x0, z0, x1, z1, h, c) => box(x0, 0, z0, x1, h, z1, 'wood', { color: c || 0xe6dfcc });
+    const sandbags = (x0, z0, x1, z1) => { box(x0, 0, z0, x1, 0.5, z1, 'cloth', { color: 0xa89870 }); box(x0 + 0.25, 0.5, z0 + 0.05, x1 - 0.25, 1.0, z1 - 0.05, 'cloth', { color: 0x9a8a62 }); };
+
+    /* ======================================================== WORLD-WIDE: ground + perimeter */
+    plane(-46, -30, 46, 30, -0.002, 'dirt', 0xc4a77c);
+    for (const [x0, z0, x1, z1] of [[-46, -30, -45, 30], [45, -30, 46, 30], [-46, 29, 46, 30], [-46, -30, 46, -29]]) { box(x0, 0, z0, x1, 3.2, z1, 'wood', { color: 0x9a8566 }); box(x0 - 0.1, 3.2, z0 - 0.1, x1 + 0.1, 3.35, z1 + 0.1, 'wood', { col: false, color: 0x6f5c44 }); }
+
+    function half(sg) {
+      S = sg;
+      const HC = sg > 0 ? 0x7fb89f : 0xe9c653, TR = sg > 0 ? 0x3f7f66 : 0xb08a24, WD = 0.4, IN = 0xeee6d2;
+      /* lawns, street, sidewalks, walkways */
+      plane(-17, -29, -11.5, 29, 0.004, 'foliage', 0x6d9b45); plane(-45, -15.6, -29, 15.4, 0.004, 'foliage', 0x74a04a);
+      plane(-10, -29, 0, 29, 0.006, 'asphalt', 0x55565b); plane(-11.5, -29, -10, 29, 0.008, 'paving', 0xbdb7a8); plane(-17, -1.2, -11.5, 1.2, 0.012, 'paving', 0xcfc8b6); plane(-17, -14.5, -11.5, -9.5, 0.012, 'asphalt', 0x55565b);
+      plane(-29, -8, -17, 8, 0.01, 'wood', 0xa88660); plane(-29, -16, -17, -8, 0.01, 'concrete', 0x8a877f);
+
+      /* ---- the house: main block x -29..-17, z -8..8 (two floors); garage z -16..-8 (one floor) ---- */
+      const W = (ax, pos, a0, a1, y0, y1, ops) => wall(ax, pos, a0, a1, WD, y0, y1, ops, 'stucco', HC);
+      W('z', -17.2, -8, 8, 0, H1, [op(-1, 1, 0, 2.4), op(-6, -3, 0.9, 2.3), op(3, 6, 0.9, 2.3)]);
+      W('z', -17.2, -8, 8, H1, RF, [op(-6.2, -2.6, 4.2, 5.6), op(-1, 1, 4.2, 5.6), op(2.6, 6.2, 4.2, 5.6)]);
+      W('z', -28.8, -8, 8, 0, H1, [op(-4, -2, 0, 2.4), op(2, 4, 0.9, 2.3)]);
+      W('z', -28.8, -8, 8, H1, RF, [op(-5, -2, 4.2, 5.6), op(1, 4, 4.2, 5.6)]);
+      W('x', 7.8, -29, -17, 0, H1, [op(-22.5, -19.5, 0.9, 2.3)]); W('x', 7.8, -29, -17, H1, RF, [op(-26, -23, 4.2, 5.6), op(-22, -19, 4.2, 5.6)]);
+      W('x', -7.8, -29, -17, 0, H1, [op(-26, -24, 0, 2.4)]); W('x', -7.8, -29, -17, H1, RF, [op(-22, -19, 4.2, 5.6)]);
+      W('z', -17.2, -16, -8, 0, H1, [op(-14.5, -9.5, 0, 2.5)]); W('z', -28.8, -16, -8, 0, H1, [op(-13.5, -11.5, 0, 2.4)]); W('x', -15.8, -29, -17, 0, H1, [op(-25, -21.5, 1.3, 2.3)]);
+      wall('z', -23, -7.6, 7.6, 0.25, 0, H1, [op(-1.5, 1.5, 0, 2.4)], 'stucco', IN); wall('z', -23, -7.6, 7.6, 0.25, H1, RF - 0.3, [op(-1.5, 1.5, H1, H1 + 2.4)], 'stucco', IN);
+      for (const r of subtract([-29, -8, -17, 8], [-28.4, 5.0, -23.6, 7.6])) { box(r[0], 3.0, r[1], r[2], H1, r[3], 'stucco', { color: IN }); plane(r[0], r[1], r[2], r[3], H1 + 0.012, 'wood', 0xa88660); }
+      box(-29, 3.0, -16, -17, H1, -8, 'stucco', { color: IN });                                              // garage ceiling
+      box(-29.5, RF - 0.3, -8.5, -16.5, RF, 8.5, 'roof', { color: 0x8a4a3a }); box(-29.5, H1, -16.5, -16.5, H1 + 0.3, -7.5, 'roof', { color: 0x8a4a3a });
+      box(-26, RF, -2, -24.8, RF + 1.6, -0.8, 'brick', { color: 0xa0583c });                                 // chimney
+      for (const z of [-8.2, 8.2]) box(-29.5, 0, z - 0.05, -16.5, 0.35, z + 0.05, 'stucco', { col: false, color: TR });   // trim
+      box(-17.5, 2.5, -1.4, -16.5, 2.6, 1.4, 'wood', { col: false, color: TR });
+      stairs(-23.6, 6.4, 2.4, 16, H1 / 16, 0.3, 'wood', 0x8a6a48); box(-26.9, H1, 4.95, -23.6, H1 + 1.0, 5.05, 'wood', { color: 0x8a6a48 });   // kitchen stairs + rail
+      box(-28.6, 0, -7.4, -27.7, 0.95, -4.4, 'wood', { color: 0xd8d0bc }); box(-28.6, 0, 0.4, -27.7, 1.9, 1.6, 'metal', { color: 0xdcdcd8 });  // kitchen counter + fridge
+      box(-21, 0, -5, -19, 0.8, -2.8, 'cloth', { color: 0x7a4a3a }); box(-21, 0, 2.8, -19.4, 0.75, 4.4, 'wood', { color: 0x8a6a48 });         // sofa + table
+      box(-28.6, H1, -6.8, -26.2, H1 + 0.6, -4.4, 'cloth', { color: 0xd8d0bc }); box(-20.6, H1, 2.6, -18.2, H1 + 0.6, 4.6, 'cloth', { color: 0xd8d0bc }); box(-22.8, H1, -7.6, -21.6, H1 + 1.9, -5.6, 'wood', { color: 0x8a6a48 });   // beds + wardrobe
+      box(-28.6, 0, -15.6, -24.5, 1.0, -14.8, 'wood', { color: 0x7a5c32 }); box(-20, 0, -15.6, -18.8, 1.1, -14.4, 'wood', { color: 0x8a6a3a });  // garage bench + crate
+      /* ---- front lawn ---- */
+      for (const z of [-14, -11, 11, 14]) cylC(-15.2, z, 0.85, 0, 1.3, 'foliage', { color: 0x4f8a3c });
+      box(-14.5, 0, -10.6, -12.8, 0.8, -9.8, 'concrete', { color: 0xa6a196 }); box(-14.5, 0, 9.8, -12.8, 0.8, 10.6, 'concrete', { color: 0xa6a196 });
+      if (sg > 0) { box(-13.3, 0, -6.6, -13.1, 1.5, -6.4, 'wood', { color: 0x6a4a30 }); box(-13.3, 0, -3.2, -13.1, 1.5, -3.0, 'wood', { color: 0x6a4a30 }); const g = new THREE.PlaneGeometry(3.4, 0.85); g.rotateY(Math.PI / 2); g.translate(-13.0, 1.6, -4.9); bld(-13, -4.9, 1.6).geo(g, 'sign', null, 0xffffff); }
+      /* ---- fenced backyard (spawn): shed, gardens, picket fences, gaps in the side fences ---- */
+      fence(-45, 15.4, -38.2, 15.6, 1.8, 0xcfc4a8); fence(-35.8, 15.4, -17, 15.6, 1.8, 0xcfc4a8); fence(-45, -15.9, -38.2, -15.7, 1.8, 0xcfc4a8); fence(-35.8, -15.9, -29, -15.7, 1.8, 0xcfc4a8);
+      box(-42.5, 0, 2, -39.3, 2.5, 5.2, 'wood', { color: 0x8a6a48 }); box(-42.8, 2.5, 1.7, -39, 2.7, 5.5, 'roof', { color: 0x6a4a3a });
+      fence(-36, -8.1, -31, -7.9, 1.1); fence(-36.1, -8, -35.9, -3, 1.1); fence(-34, 5.9, -29.5, 6.1, 1.1);
+      box(-43.8, 0, -11, -41.5, 0.4, -6, 'dirt', { color: 0x5a4430 }); box(-33.5, 0, 9, -31.5, 0.4, 13, 'dirt', { color: 0x5a4430 });
+      barrel(-33, -5); barrel(-33.9, -4.4); barrel(-44, 8, 0x8a3a2a); crate(-31.8, 10.6, 1); crate(-40, -12.6, 2);
+      cylC(-40, 10, 0.22, 0, 3.4, 'wood', { color: 0x6a4a30 }); ball(-40, 4.2, 10, 1.7, 0x5f8f3a); ball(-39.3, 3.7, 10.6, 1.2, 0x4f7f32);
+      /* ---- side alleys ---- */
+      crate(-21, 22, 2); crate(-19.8, 22.4, 1); barrel(-33, 19); barrel(-33.9, 19.4, 0x8a3a2a); box(-30, 0, 25, -23, 1.1, 25.3, 'concrete', { color: 0xa6a196 }); car(-38, 22, 1.9, 4.4, sg > 0 ? 0x8a4a2a : 0x2f5f8a, false);
+      sandbags(-27, -21.4, -23, -20.8); crate(-35, -24, 2); crate(-33.8, -23.6, 1); barrel(-20, -26); barrel(-20.9, -26.4, 0x8a3a2a); box(-24, 0, -27, -17, 1.1, -26.7, 'concrete', { color: 0xa6a196 }); car(-30, -26.4, 1.9, 4.4, sg > 0 ? 0xc8c0a8 : 0x6a3a3a, false);
+      /* ---- the street: bus (east) and open-hold delivery truck (west), cars, cover ---- */
+      if (sg > 0) {
+        box(2.2, 0, 0.5, 4.8, 2.9, 12, 'metal', { color: 0xe3b52a }); box(2.15, 0.9, 0.5, 4.85, 1.1, 12, 'paint', { col: false, color: 0x1a1a1a });
+        for (let z = 1.2; z < 11.6; z += 1.45) for (const x of [2.13, 4.87]) box(x - 0.03, 1.55, z, x + 0.03, 2.4, z + 1.1, 'paint', { col: false, color: 0x1d2630 });
+        for (const z of [2.2, 10.2]) for (const x of [2.15, 4.55]) box(x, 0, z - 0.5, x + 0.3, 0.8, z + 0.5, 'rubber', { col: false, color: 0x161616 });
+      } else {
+        box(2.2, 0, 7.6, 4.8, 2.4, 9.6, 'metal', { color: 0x4a6a8a }); box(2.2, 0, 0.5, 4.8, 0.4, 7.6, 'metal', { color: 0x8a8d90 });
+        box(2.2, 0.4, 0.5, 2.4, 2.9, 7.6, 'metal', { color: 0xdedbd2 }); box(4.6, 0.4, 0.5, 4.8, 2.9, 7.6, 'metal', { color: 0xdedbd2 }); box(2.2, 2.7, 0.5, 4.8, 2.9, 7.6, 'metal', { color: 0xdedbd2 }); box(2.4, 0.4, 7.4, 4.6, 2.7, 7.6, 'metal', { color: 0xc8c5bc });
+        box(2.9, 0.4, 5.4, 4.0, 1.4, 6.5, 'wood', { color: 0x8a6a3a });
+      }
+      car(-6.5, 3, 1.9, 4.4, sg > 0 ? 0xe6c24e : 0x3f6fb8, false); crate(-2.4, -9, 2); box(-9, 0, 12, -6, 1.1, 12.3, 'concrete', { color: 0xa6a196 }); sandbags(-7, -4.5, -3, -3.9);
+      /* ---- the ends of the cul-de-sac: third house (north) / sandbagged road barricade with a 4x4 (south) ---- */
+      if (sg > 0) {
+        const T = (ax, pos, a0, a1, ops) => wall(ax, pos, a0, a1, WD, 0, H1, ops, 'stucco', 0xd8d0b8);
+        T('x', 21.2, -6, 6, [op(-1, 1, 0, 2.4), op(-5, -3, 0.9, 2.3), op(3, 5, 0.9, 2.3)]); T('x', 28.8, -6, 6, [op(-2, 2, 0.9, 2.3)]); T('z', -5.8, 21, 29, [op(24, 26, 0, 2.4)]); T('z', 5.8, 21, 29, [op(24, 26, 0, 2.4)]);
+        box(-6.4, H1 - 0.3, 20.8, 6.4, H1, 29.2, 'roof', { color: 0x7a4a3a }); plane(-6, 21, 6, 29, 0.01, 'wood', 0x9a7a52); box(-4, 0, 26.4, 0, 0.95, 27.4, 'wood', { color: 0x8a6a48 }); box(2.5, 0, 22.4, 5, 0.8, 23.4, 'cloth', { color: 0x6a5a4a });
+        car(-11, 19, 1.9, 4.4, 0x8a4a2a, false); crate(8, 22, 2); crate(9.2, 22.4, 1); crate(8, 24, 1);
+      } else {
+        box(-9.5, 0, 27.4, 9.5, 2.6, 28.4, 'metal', { color: 0x6a6e72 }); box(-9.5, 2.6, 27.3, 9.5, 2.8, 28.5, 'steel', { col: false, color: 0x4a4e52 }); plane(-9, 22, 9, 27.4, 0.012, 'asphalt', 0x6a6a6e);
+        sandbags(-9, 23, -4, 23.7); sandbags(5, 23, 9.5, 23.7); sandbags(-9.5, 24, -8.8, 27.4); car(0.5, 24.5, 2.0, 4.4, 0x5a6a42, true); crate(-6, 20, 1);
+      }
+    }
+    half(1); half(-1); S = 1;
+
+    /* ======================================================== GROUP / SKY / LIGHT */
+    const group = new THREE.Group(); group.name = 'map';
+    for (const k of Object.keys(chunks)) {
+      const g = chunks[k].build(M, { cast: true, receive: true });
+      g.traverse((m) => { if (m.isMesh) { if (/^(glass|lamp|sign)$/.test(m.name)) m.castShadow = false; m.matrixAutoUpdate = false; } });
+      group.add(g);
+    }
+    scene.add(group);
+    const sunDir = new THREE.Vector3(0.4, 0.85, 0.3).normalize();
+    const dome = new THREE.Mesh(new THREE.SphereGeometry(300, 32, 16), new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide, depthWrite: false, fog: false })); dome.frustumCulled = false; dome.renderOrder = -10; scene.add(dome);
+    const envScene = new THREE.Scene(); envScene.add(new THREE.Mesh(new THREE.SphereGeometry(50, 24, 16), new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide })));
+    const pm = new THREE.PMREMGenerator(renderer); const envTex = pm.fromScene(envScene, 0.0, 0.1, 100).texture; pm.dispose();
+    scene.environment = envTex; if ('environmentIntensity' in scene) scene.environmentIntensity = 0.7;
+    scene.fog = new THREE.FogExp2(0xe6d6b8, 0.004);
+    const sun = new THREE.DirectionalLight(0xfff0d0, 3.6); sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048); const sc = sun.shadow.camera; sc.left = -62; sc.right = 62; sc.top = 62; sc.bottom = -62; sc.near = 1; sc.far = 300;
+    sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.05; scene.add(sun); scene.add(sun.target);
+    sun.target.position.set(0, 0, 0); sun.position.copy(sun.target.position).addScaledVector(sunDir, 140); sun.target.updateMatrixWorld();
+    const hemi = new THREE.HemisphereLight(0xbfdcff, 0xc8aa80, 1.0); scene.add(hemi); group.add(new THREE.AmbientLight(0xffffff, 0.2));
+    function update(dt, camPos) { dome.position.copy(camPos); }
+
+    /* ======================================================== WORLD, SPAWN POOL, PICKUPS, HINTS */
+    const groundMat = (x, z) => (Math.abs(x) < 11.5 ? 'concrete' : 'dirt');
+    const world = World.create(cols, BOUNDS, groundMat);
+    world.navRelax = [[-28.7, 4.6, -23.5, 7.7], [23.5, -7.7, 28.7, -4.6]];   // the two kitchen staircases are steep and end against the wall: let the bots' navigation grid use them (slimmer radius, steeper links)
+    let inMain = () => true;     // only points the bots' navigation grid can reach are valid spawns / pickups / hints
+    try {
+      const nav = Nav.create(world), mc = nav.mainComp(), ML = nav.N / (nav.w * nav.h), CSZ = Nav.CS;
+      if (mc >= 0) inMain = (x, y, z) => {
+        const cx = Math.floor((x - nav.x0) / CSZ), cz = Math.floor((z - nav.z0) / CSZ); if (cx < 0 || cz < 0 || cx >= nav.w || cz >= nav.h) return false;
+        const b = (cz * nav.w + cx) * ML; for (let l = 0; l < ML; l++) { const yy = nav.y[b + l]; if (!isNaN(yy) && Math.abs(yy - y) < 0.12 && nav.comp[b + l] === mc) return true; } return false;
+      };
+    } catch (e) { }
+    const faceCenter = (x, z) => Math.atan2(x, z);
+    const pool = [];
+    for (const lvl of [0, H1]) for (let z = -28; z <= 28; z += 3) for (let x = -44; x <= 44; x += 3) {
+      if (!world.canStand(x, lvl, z, 0.5, 1.9, 0.3) || !inMain(x, lvl, z)) continue;
+      if (Math.abs(world.surfaceY(x, z, lvl + 0.3) - lvl) > 0.05) continue;
+      let best = faceCenter(x, z), bd = -1;
+      for (let k = 0; k < 16; k++) { const a = k * Math.PI / 8, dx = -Math.sin(a), dz = -Math.cos(a); const d = world.raycast(x, lvl + 1.3, z, dx, 0, dz, 24) ? world.hit.t : 24; const bias = Math.cos(a - faceCenter(x, z)) * 1.5; if (d + bias > bd) { bd = d + bias; best = a; } }
+      pool.push({ x: x, y: lvl, z: z, yaw: best });
+    }
+    const spawns = [pool, pool];
+    function nudge(x, z, lvl) { for (let r = 0; r < 4; r += 0.5) for (let k = 0; k < 8; k++) { const px = x + Math.cos(k * 0.785) * r, pz = z + Math.sin(k * 0.785) * r; if (world.canStand(px, lvl, pz, 0.5, 1.9, 0.3) && Math.abs(world.surfaceY(px, pz, lvl + 0.3) - lvl) < 0.06 && inMain(px, lvl, pz)) return [px, pz]; } return null; }
+    const PK = [['awp', -19.5, 3.6, H1], ['m60', 0, 0.5, 0], ['shotgun', -21, -1, 0], ['mp5', 21, 1, 0], ['ak', 0, 14, 0], ['m4', 0, -14, 0], ['deagle', -26, -13, 0], ['m1911', 26, 13, 0],
+      ['ammo', -37, 0, 0], ['ammo', 37, 0, 0], ['ammo', -8, 9, 0], ['ammo', 8, -9, 0], ['ammo', -24, 4, H1], ['ammo', 24, -4, H1], ['ammo', -30, 22, 0], ['ammo', 30, -22, 0], ['ammo', 0, 24, 0], ['ammo', 0, -24, 0]];
+    const pickups = [];
+    for (const p of PK) { const n = nudge(p[1], p[2], p[3]); if (n) pickups.push({ id: p[0], x: n[0], z: n[1], y: world.surfaceY(n[0], n[1], p[3] + 0.5), yaw: 0 }); }
+    const hints = { free: true, lanes: [], sniperSpots: [], holdSpots: [], cqbSpots: [] };
+    const addHint = (list, x, y, z) => { const n = nudge(x, z, y); if (n) list.push({ x: n[0], y: y, z: n[1] }); };
+    for (const q of [[-19.5, 4.4, H1], [-19.5, -4.4, H1], [19.5, 4.4, H1], [19.5, -4.4, H1], [-26, 0, H1], [26, 0, H1]]) { const n = nudge(q[0], q[1], q[2]); if (n) hints.sniperSpots.push({ x: n[0], y: q[2], z: n[1], yaw: faceCenter(n[0], n[1]) }); }
+    for (const q of [[0, 0], [-7, 8], [7, -8], [-7, -8], [7, 8], [0, 15], [0, -15], [-38, 0], [38, 0], [-22, 20], [22, -20], [-22, -20], [22, 20], [-14, 0], [14, 0]]) addHint(hints.holdSpots, q[0], 0, q[1]);
+    for (const q of [[-20, 0], [20, 0], [-25, -12], [25, 12], [-22, 4], [22, -4], [0, 25], [0, -25], [-40, 4], [40, -4]]) addHint(hints.cqbSpots, q[0], 0, q[1]);
+    for (const q of [[-22, 3], [22, -3], [-26, -5], [26, 5]]) addHint(hints.cqbSpots, q[0], H1, q[1]);
+    world.groundMat = groundMat;
+
+    return {
+      name: 'NUKETOWN', id: 'nuketown', free: true, group: group, colliders: cols, bounds: BOUNDS, spawns: spawns, pickups: pickups, hints: hints, groundMat: groundMat, world: world,
+      sun: sun, sunDir: sunDir, hemi: hemi, dome: dome, focusShadow: () => { }, menu: { r: 30, h: 14, look: [0, 2.5, 0], speed: 0.04 },
+      env: { texture: envTex, sunDir: sunDir, sunColor: sun.color.clone(), sunIntensity: sun.intensity, hemiSky: hemi.color.clone(), hemiGround: hemi.groundColor.clone(), hemiIntensity: hemi.intensity, envIntensity: 0.7 },
+      update: update
+    };
+  }
+  return { build: build, BOUNDS: BOUNDS };
+})();
+
+/* ===== 37_shipment.js ===== */
+/* ============================================================================
+   37_shipment.js — "SHIPMENT": a fan recreation of the classic Call of Duty container-yard brawl.
+   A walled asphalt yard (about 41 x 38 m, real 20 ft container sizes):
+     - four double-stacked container blocks around a central cross of lanes (the lanes are about 3.4 m wide),
+     - a single-height container block against the middle of each wall,
+     - a ring of containers three high around everything,
+     - wrecked cars, oil drums, crates, pallets and concrete barriers for cover.
+   No interiors, no upper floors: small, fast and loud. Free-for-all spawns on the ground.
+   Boxes + vertical cylinders only (visuals == colliders). Overcast daylight; cranes, a water tower, a smokestack,
+   warehouses and pines show over the walls.
+   ============================================================================ */
+const ShipmentMap = (function () {
+  'use strict';
+  const PHYS = { stucco: 'concrete', concrete: 'concrete', metal: 'metal', wood: 'wood', asphalt: 'concrete', paving: 'concrete', dirt: 'dirt', steel: 'metal', paint: 'metal', cloth: 'dirt', rubber: 'dirt', foliage: 'dirt' };
+  const TS = { stucco: 4, concrete: 3, concreteF: 3, asphaltF: 6, metal: 2.4, wood: 1.2, asphalt: 6, paving: 3.2, dirt: 5, steel: 2.4, paint: 2.4, foliage: 4, cloth: 2 };
+  const BOUNDS = { minX: -23, maxX: 23, minZ: -21.6, maxZ: 21.6 };
+  const IX = 20.5, IZ = 19.0;                    // playable yard half extents
+  const CL = 6.1, CW = 2.44, CH = 2.6;           // one 20 ft container: length, width, height
+
+  function worldUV(g, ts) {
+    const p = g.attributes.position, n = g.attributes.normal, uv = g.attributes.uv;
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i), y = p.getY(i), z = p.getZ(i), ax = Math.abs(n.getX(i)), ay = Math.abs(n.getY(i));
+      if (ax > 0.55) uv.setXY(i, z / ts, y / ts); else if (ay > 0.55) uv.setXY(i, x / ts, z / ts); else uv.setXY(i, x / ts, y / ts);
+    }
+  }
+
+  function build(scene, renderer) {
+    const M = MapTex.create(), rnd = U.rng(1979), cols = [], chunks = {};
+    const bld = (x, z, y) => { const k = Math.floor((x + 70) / 24) + ',' + Math.floor((z + 70) / 24) + ',' + (y > 4 ? 1 : 0); return chunks[k] || (chunks[k] = new U.Builder()); };
+    const cvs = (w, h, draw) => { const c = U.makeCanvas(w, h); draw(c.getContext('2d'), w, h); return c; };
+
+    /* container ID stencils (three variants, white with a dark outline so they read on any paint colour) */
+    const cidTex = (a, b) => U.texture(cvs(256, 64, (x, w, h) => {
+      x.clearRect(0, 0, w, h); x.textAlign = 'left'; x.textBaseline = 'middle'; x.lineWidth = 4; x.strokeStyle = 'rgba(20,20,20,0.55)'; x.fillStyle = 'rgba(236,236,228,0.92)';
+      x.font = 'bold 30px "Courier New", monospace'; x.strokeText(a, 8, 22); x.fillText(a, 8, 22);
+      x.font = 'bold 22px "Courier New", monospace'; x.strokeText(b, 8, 49); x.fillText(b, 8, 49);
+    }), { aniso: 4, clamp: true });
+    [['MSKU 482913 7', '22G1'], ['TGHU 706254 0', '22G1'], ['CMAU 318860 3', '22U1']].forEach((t, i) => {
+      M['cid' + i] = new THREE.MeshStandardMaterial({ map: cidTex(t[0], t[1]), transparent: true, depthWrite: false, roughness: 0.85, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    });
+
+    /* overcast sky: grey cloud deck, two layers of hills (periodic, so the seam is invisible) */
+    const skyTex = U.texture(cvs(1024, 256, (x, w, h) => {
+      const hz = h * 0.5, r = U.rng(77), g = x.createLinearGradient(0, 0, 0, hz);
+      g.addColorStop(0, '#68747f'); g.addColorStop(0.65, '#a4afb4'); g.addColorStop(1, '#cdd4d0'); x.fillStyle = g; x.fillRect(0, 0, w, hz);
+      x.fillStyle = '#5d6450'; x.fillRect(0, hz, w, hz);
+      for (let i = 0; i < 70; i++) { const cx = r() * w, cy = hz * (0.05 + r() * 0.75), rw = 40 + r() * 110, gr = x.createRadialGradient(cx, cy, 1, cx, cy, rw); const dark = r() < 0.5; gr.addColorStop(0, dark ? 'rgba(70,78,86,0.30)' : 'rgba(235,240,240,0.35)'); gr.addColorStop(1, 'rgba(120,130,135,0)'); x.save(); x.translate(cx, cy); x.scale(1, 0.22); x.translate(-cx, -cy); x.fillStyle = gr; x.fillRect(cx - rw, cy - rw, rw * 2, rw * 2); x.restore(); }
+      for (const L of [['#8a9896', 30, 8, 1.1], ['#5e7158', 16, 0, 3.7]]) {
+        x.fillStyle = L[0]; x.beginPath(); x.moveTo(0, hz + 3);
+        for (let px = 0; px <= w; px += 4) { const t = px / w * 6.2832, a = L[3]; x.lineTo(px, hz - L[2] - L[1] * (0.5 + 0.25 * Math.sin(3 * t + a) + 0.15 * Math.sin(7 * t + 2 * a) + 0.1 * Math.sin(13 * t + 3 * a))); }
+        x.lineTo(w, hz + 3); x.closePath(); x.fill();
+      }
+    }), { aniso: 4 });
+
+    /* ---------- primitives ---------- */
+    function box(x0, y0, z0, x1, y1, z1, mat, o) {
+      o = o || {}; let t;
+      if (x1 < x0) { t = x0; x0 = x1; x1 = t; } if (z1 < z0) { t = z0; z0 = z1; z1 = t; }
+      const w = x1 - x0, h = y1 - y0, d = z1 - z0; if (w <= 0 || h <= 0 || d <= 0) return;
+      if (o.vis !== false) { const g = new THREE.BoxGeometry(w, h, d); g.translate((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2); worldUV(g, TS[mat] || 1); bld((x0 + x1) / 2, (z0 + z1) / 2, (y0 + y1) / 2).geo(g, mat, null, o.color); }
+      if (o.col !== false) cols.push({ t: 'box', min: [x0, y0, z0], max: [x1, y1, z1], mat: PHYS[mat] || 'concrete', pass: !!o.pass, solid: o.solid !== false });
+    }
+    function cylC(x, z, r, y0, y1, mat, o) {
+      o = o || {}; bld(x, z, (y0 + y1) / 2).cyl(r, r, y1 - y0, x, (y0 + y1) / 2, z, mat, { axis: 'y', color: o.color, seg: o.seg || 12 });
+      if (o.col !== false) cols.push({ t: 'cyl', x: x, z: z, r: r, y0: y0, y1: y1, mat: PHYS[mat] || 'concrete' });
+    }
+    function plane(x0, z0, x1, z1, y, mat, color) {
+      const ax = Math.min(x0, x1), bx = Math.max(x0, x1), az = Math.min(z0, z1), bz = Math.max(z0, z1);
+      const g = new THREE.PlaneGeometry(bx - ax, bz - az); g.rotateX(-Math.PI / 2); g.translate((ax + bx) / 2, y, (az + bz) / 2); worldUV(g, TS[mat] || 3); bld((ax + bx) / 2, (az + bz) / 2, y).geo(g, mat, null, color === undefined ? 0xffffff : color);
+    }
+    const cone = (x, z, r, y0, y1, color, seg) => bld(x, z, y0).cyl(0.03, r, y1 - y0, x, (y0 + y1) / 2, z, 'foliage', { axis: 'y', color: color, seg: seg || 8 });
+    const shade = (c, k) => ((((c >> 16) & 255) * k) << 16) | ((((c >> 8) & 255) * k) << 8) | (((c & 255) * k) | 0);
+    function decal(x, y, z, face, k) {
+      const g = new THREE.PlaneGeometry(1.6, 0.4);
+      if (face === '+x') g.rotateY(Math.PI / 2); else if (face === '-x') g.rotateY(-Math.PI / 2); else if (face === '-z') g.rotateY(Math.PI);
+      g.translate(x, y, z); bld(x, z, y).geo(g, 'cid' + (k % 3), null, 0xffffff);
+    }
+
+    /* ---------- containers ---------- */
+    const CCOL = [0x6c3a2e, 0x7a4a34, 0x2f4658, 0x3a5a6a, 0x4a5a3c, 0x5a6a4e, 0x777770, 0x8d8a82, 0xa8a49a, 0x8a3a2a, 0x5a2a24, 0xb8b0a0, 0x34444a, 0x9a6a2a];
+    const ccol = () => CCOL[(rnd() * CCOL.length) | 0];
+    /* one container (visual only): ax = direction of its long side, lv = stack level, o.door = which end carries the locking rods (-1 / +1 / 0 none),
+       o.decal = which face gets an ID stencil, o.len = length override (the perimeter rows stretch a little to close exactly) */
+    function cont(cx, cz, ax, lv, color, o) {
+      o = o || {}; const L = o.len || CL, lx = ax === 'x' ? L : CW, lz = ax === 'x' ? CW : L, y0 = lv * CH, y1 = y0 + CH;
+      const x0 = cx - lx / 2, x1 = cx + lx / 2, z0 = cz - lz / 2, z1 = cz + lz / 2, dk = shade(color, 0.55);
+      box(x0, y0, z0, x1, y1, z1, 'metal', { color: color, col: false });
+      for (const sx of [0, 1]) for (const sz of [0, 1]) box(sx ? x1 - 0.1 : x0 - 0.02, y0, sz ? z1 - 0.1 : z0 - 0.02, sx ? x1 + 0.02 : x0 + 0.1, y1, sz ? z1 + 0.02 : z0 + 0.1, 'steel', { col: false, color: dk });
+      if (o.door) {
+        const d = o.door;
+        if (ax === 'x') {
+          const xe = d > 0 ? x1 : x0;
+          for (const k of [-1, 1]) { box(xe, y0 + 0.12, cz + k * CW * 0.18 - 0.03, xe + d * 0.05, y1 - 0.12, cz + k * CW * 0.18 + 0.03, 'steel', { col: false, color: 0x2c2f31 }); box(xe, y0 + 1.0, cz + k * CW * 0.18 - 0.08, xe + d * 0.07, y0 + 1.25, cz + k * CW * 0.18 + 0.08, 'steel', { col: false, color: 0x2c2f31 }); }
+          box(xe, y0 + 0.05, cz - 0.012, xe + d * 0.03, y1 - 0.05, cz + 0.012, 'steel', { col: false, color: 0x1e2022 });
+        } else {
+          const ze = d > 0 ? z1 : z0;
+          for (const k of [-1, 1]) { box(cx + k * CW * 0.18 - 0.03, y0 + 0.12, ze, cx + k * CW * 0.18 + 0.03, y1 - 0.12, ze + d * 0.05, 'steel', { col: false, color: 0x2c2f31 }); box(cx + k * CW * 0.18 - 0.08, y0 + 1.0, ze, cx + k * CW * 0.18 + 0.08, y0 + 1.25, ze + d * 0.07, 'steel', { col: false, color: 0x2c2f31 }); }
+          box(cx - 0.012, y0 + 0.05, ze, cx + 0.012, y1 - 0.05, ze + d * 0.03, 'steel', { col: false, color: 0x1e2022 });
+        }
+      }
+      if (o.decal) {
+        const k = (rnd() * 3) | 0, off = (rnd() - 0.5) * 3, dy = y0 + 1.9;
+        if (o.decal === '+z') decal(cx + off, dy, z1 + 0.012, '+z', k); else if (o.decal === '-z') decal(cx + off, dy, z0 - 0.012, '-z', k);
+        else if (o.decal === '+x') decal(x1 + 0.012, dy, cz + off, '+x', k); else decal(x0 - 0.012, dy, cz + off, '-x', k);
+      }
+    }
+    function wallRun(a0, a1, pos, ax, n, levels) {     // a row of containers along x (at z = pos) or along z (at x = pos)
+      const len = (a1 - a0) / n;
+      for (let i = 0; i < n; i++) for (let lv = 0; lv < levels; lv++) { const c = a0 + (i + 0.5) * len; if (ax === 'x') cont(c, pos, 'x', lv, ccol(), { len: len }); else cont(pos, c, 'z', lv, ccol(), { len: len }); }
+    }
+
+    /* ======================================================== GROUND */
+    plane(-90, -90, 90, 90, -0.01, 'foliage', 0x56653f);                  // everything outside the walls
+    plane(-IX - CW, -IZ - CW, IX + CW, IZ + CW, -0.002, 'asphalt', 0x56585b);
+    const patches = [];
+    function patch(x0, z0, x1, z1) { patches.push([x0, z0, x1, z1]); plane(x0, z0, x1, z1, 0.006, 'foliage', [0x5a7040, 0x667a46, 0x4f6638][patches.length % 3]); }
+    patch(-20.5, -19, -15.8, -17.4); patch(-20.5, -13.5, -18.6, -8.5); patch(-20.5, 8.0, -17.6, 13.5); patch(-14.0, 17.4, -7.5, 19.0); patch(6.5, 17.4, 12.5, 19.0);
+    patch(17.6, 7.5, 20.5, 14.0); patch(17.5, -17.0, 20.5, -9.0); patch(7.5, -19, 13.5, -17.5); patch(-9.5, -19, -4.5, -17.8);
+    for (const [x0, z0, x1, z1] of [[-19.3, -17.8, 19.3, -17.65], [-19.3, 17.65, 19.3, 17.8], [-19.3, -17.8, -19.15, 17.8], [19.15, -17.8, 19.3, 17.8]]) plane(x0, z0, x1, z1, 0.012, 'concreteF', 0xb9a23a);    // faded yellow safety line
+    for (const [x0, z0, x1, z1] of [[-11.5, -2.8, -9.5, -1.6], [9.5, 1.4, 12, 2.7], [-1.5, 8.8, 0.6, 10.2], [2.5, -11.6, 4.8, -10.4]]) plane(x0, z0, x1, z1, 0.01, 'asphaltF', 0x2b2c2e);   // oil stains
+
+    /* ======================================================== PERIMETER: containers three high */
+    wallRun(-IX - CW, IX + CW, -IZ - CW / 2, 'x', 8, 3); wallRun(-IX - CW, IX + CW, IZ + CW / 2, 'x', 8, 3);
+    wallRun(-IZ, IZ, -IX - CW / 2, 'z', 6, 3); wallRun(-IZ, IZ, IX + CW / 2, 'z', 6, 3);
+    box(-IX - CW, 0, -IZ - CW, IX + CW, 3 * CH, -IZ, 'metal', { vis: false }); box(-IX - CW, 0, IZ, IX + CW, 3 * CH, IZ + CW, 'metal', { vis: false });
+    box(-IX - CW, 0, -IZ, -IX, 3 * CH, IZ, 'metal', { vis: false }); box(IX, 0, -IZ, IX + CW, 3 * CH, IZ, 'metal', { vis: false });
+
+    /* ======================================================== CENTRE: four double-stacked blocks (two containers wide, two high) */
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      const cx = sx * 4.75, cz = sz * 4.15;
+      for (let lv = 0; lv < 2; lv++) for (const k of [-0.5, 0.5]) cont(cx + (lv ? (rnd() - 0.5) * 0.3 : 0), cz + k * CW, 'x', lv, ccol(), { door: -sx, decal: k < 0 ? '-z' : '+z' });
+      box(cx - CL / 2 - 0.15, 0, cz - CW, cx + CL / 2 + 0.15, 2 * CH, cz + CW, 'metal', { vis: false });
+    }
+    box(-7.0, 2 * CH, -6.2, -2.4, 2 * CH + 0.1, -2.0, 'cloth', { col: false, color: 0x3f5a34 });          // tarp over the north-west block
+    box(-7.0, 2 * CH - 1.3, -6.64, -2.4, 2 * CH + 0.1, -6.58, 'cloth', { col: false, color: 0x3f5a34 });
+    box(-7.0, 2 * CH - 0.8, -1.64, -2.4, 2 * CH + 0.1, -1.58, 'cloth', { col: false, color: 0x3f5a34 });
+
+    /* ======================================================== WALL BLOCKS: one container high, two wide, at the middle of each wall */
+    for (const sz of [-1, 1]) {
+      for (const k of [0.5, 1.5]) cont(0, sz * (IZ - k * CW), 'x', 0, ccol(), { door: sz, decal: k > 1 ? (sz < 0 ? '+z' : '-z') : null });
+      box(-CL / 2, 0, sz < 0 ? -IZ : IZ - 2 * CW, CL / 2, CH, sz < 0 ? -IZ + 2 * CW : IZ, 'metal', { vis: false });
+    }
+    for (const sx of [-1, 1]) {
+      for (const k of [0.5, 1.5]) cont(sx * (IX - k * CW), 0, 'z', 0, ccol(), { door: -sx, decal: k > 1 ? (sx < 0 ? '+x' : '-x') : null });
+      box(sx < 0 ? -IX : IX - 2 * CW, 0, -CL / 2, sx < 0 ? -IX + 2 * CW : IX, CH, CL / 2, 'metal', { vis: false });
+    }
+
+    /* ======================================================== COVER */
+    const barrel = (x, z, c, white) => { cylC(x, z, 0.3, 0, 0.9, 'metal', { color: c || 0x3c4a34, seg: 12 }); cylC(x, z, 0.31, 0.88, 0.94, 'steel', { col: false, color: white ? 0xd8d8d0 : 0x2a2c2c, seg: 12 }); };
+    const crate = (x, z, n) => { for (let i = 0; i < (n || 1); i++) box(x, i * 1.2, z, x + 1.2, i * 1.2 + 1.2, z + 1.2, 'wood', { color: [0x8a6a3a, 0x7a5c32, 0x927040][Math.abs(i + ((x * 3) | 0)) % 3] }); };
+    const pallet = (x, z, stack) => { box(x, 0, z, x + 1.2, 0.14, z + 1.0, 'wood', { color: 0xa88660 }); if (stack) box(x + 0.05, 0.14, z + 0.05, x + 1.15, 0.14 + stack, z + 0.95, 'wood', { color: 0xb09a74 }); };
+    const jersey = (cx, cz, alongX) => {
+      const lx = alongX ? 3.0 : 0.6, lz = alongX ? 0.6 : 3.0, ix = alongX ? lx / 2 : 0.18, iz = alongX ? 0.18 : lz / 2;
+      box(cx - lx / 2, 0, cz - lz / 2, cx + lx / 2, 0.45, cz + lz / 2, 'concrete', { color: 0x9a9890 }); box(cx - ix, 0.45, cz - iz, cx + ix, 0.95, cz + iz, 'concrete', { color: 0x9a9890 });
+    };
+    function wreck(x, z, alongX, color) {      // a burnt-out little hatchback, 4.2 x 1.8 m
+      const L = 4.2, Wd = 1.8, lx = alongX ? L : Wd, lz = alongX ? Wd : L;
+      box(x - lx / 2, 0.3, z - lz / 2, x + lx / 2, 0.95, z + lz / 2, 'paint', { color: color });
+      const a0 = alongX ? x - L * 0.2 : x - Wd / 2 + 0.1, a1 = alongX ? x + L * 0.22 : x + Wd / 2 - 0.1, b0 = alongX ? z - Wd / 2 + 0.1 : z - L * 0.2, b1 = alongX ? z + Wd / 2 - 0.1 : z + L * 0.22;
+      box(a0, 0.95, b0, a1, 1.5, b1, 'paint', { color: color });
+      const wn = 0x1a2228;
+      box(a0 + 0.08, 1.0, b0 - 0.012, a1 - 0.08, 1.42, b0 + 0.012, 'paint', { col: false, color: wn }); box(a0 + 0.08, 1.0, b1 - 0.012, a1 - 0.08, 1.42, b1 + 0.012, 'paint', { col: false, color: wn });
+      box(a0 - 0.012, 1.0, b0 + 0.08, a0 + 0.012, 1.42, b1 - 0.08, 'paint', { col: false, color: wn }); box(a1 - 0.012, 1.0, b0 + 0.08, a1 + 0.012, 1.42, b1 - 0.08, 'paint', { col: false, color: wn });
+      for (const e of [-1, 1]) for (const s of [-1, 1]) { const wx = alongX ? x + e * L * 0.32 : x + s * (Wd / 2 - 0.05), wz = alongX ? z + s * (Wd / 2 - 0.05) : z + e * L * 0.32; box(wx - (alongX ? 0.32 : 0.12), 0, wz - (alongX ? 0.12 : 0.32), wx + (alongX ? 0.32 : 0.12), 0.64, wz + (alongX ? 0.12 : 0.32), 'rubber', { col: false, color: 0x181818 }); }
+      box(alongX ? x - L * 0.5 : x - 0.7, 0.55, alongX ? z - 0.7 : z - L * 0.5, alongX ? x - L * 0.5 + 0.06 : x + 0.7, 0.9, alongX ? z + 0.7 : z - L * 0.5 + 0.06, 'steel', { col: false, color: 0x2a2a28 });
+    }
+    /* north-west */  crate(-17.9, -16.6, 2); crate(-16.5, -16.9, 1); barrel(-8.7, -6.0, 0x3c4a34); barrel(-8.7, -5.1, 0x4a5a66); jersey(-13, -10.5, false);
+    /* north-east */  wreck(13.5, -13.0, true, 0x6a6a52); barrel(12.4, -8.6, 0x6a3a28); barrel(13.2, -8.2, 0x3c4a34); jersey(14, -6.5, true);
+    /* south-west */  wreck(-14.5, 13.0, false, 0x7a7a60); barrel(-11.4, 11.6, 0x4a5a66, true); barrel(-10.6, 12.0, 0x3c4a34, true); barrel(-11.2, 10.8, 0x6a3a28, true); crate(-17.3, 16.6, 1); crate(-16.1, 16.7, 1);
+    /* south-east */  pallet(16.6, 14.8, 1.0); pallet(16.6, 16.0, 0.6); crate(14.4, 16.6, 1); barrel(8.7, 5.5, 0x3c4a34); barrel(8.7, 6.4, 0x4a5a66); jersey(13, 9.5, false);
+    /* lanes */       crate(-11.4, 0.4, 1); crate(10.0, -1.6, 1); barrel(0.6, -9.5, 0x6a3a28); barrel(-0.6, 9.8, 0x4a5a66);
+
+    /* ======================================================== OUTSIDE (seen over the walls) */
+    const tree = (x, z, h) => {
+      box(x - 0.2, 0, z - 0.2, x + 0.2, h * 0.3, z + 0.2, 'wood', { col: false, color: 0x4a3828 });
+      const c = [0x2f4a30, 0x3a5a38, 0x2a432c][(rnd() * 3) | 0];
+      cone(x, z, h * 0.3, h * 0.14, h * 0.55, c, 7); cone(x, z, h * 0.23, h * 0.38, h * 0.78, c, 7); cone(x, z, h * 0.15, h * 0.62, h, c, 7);
+    };
+    for (let i = 0; i < 46; i++) {
+      let x, z; const side = i % 4, d = 3 + rnd() * 14;
+      if (side < 2) { z = (side ? 1 : -1) * (IZ + CW + d); x = -38 + rnd() * 76; } else { x = (side === 3 ? 1 : -1) * (IX + CW + d); z = -34 + rnd() * 68; }
+      tree(x, z, 11 + rnd() * 6);
+    }
+    function crane(x, z, dir) {       // a harbour gantry crane: lattice tower, long jib, counter-weight
+      const c = 0x5a7a90, c2 = 0x3a4a56, H = 36;
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) box(x + sx * 1.1 - 0.12, 0, z + sz * 1.1 - 0.12, x + sx * 1.1 + 0.12, H, z + sz * 1.1 + 0.12, 'steel', { col: false, color: c });
+      for (let y = 3; y < H; y += 3.2) { box(x - 1.1, y, z - 1.1, x + 1.1, y + 0.1, z - 1.0, 'steel', { col: false, color: c2 }); box(x - 1.1, y, z + 1.0, x + 1.1, y + 0.1, z + 1.1, 'steel', { col: false, color: c2 }); box(x - 1.1, y, z - 1.1, x - 1.0, y + 0.1, z + 1.1, 'steel', { col: false, color: c2 }); box(x + 1.0, y, z - 1.1, x + 1.1, y + 0.1, z + 1.1, 'steel', { col: false, color: c2 }); }
+      box(x - 2.4, H, z - 1.6, x + 2.4, H + 3.2, z + 1.6, 'steel', { col: false, color: 0x6a8aa0 });
+      if (dir === 'x') { box(x - 10, H + 0.6, z - 0.5, x + 32, H + 1.6, z + 0.5, 'steel', { col: false, color: c }); box(x - 10, H + 0.2, z - 1.3, x - 6, H + 2.6, z + 1.3, 'concrete', { col: false, color: 0x6a6a68 }); box(x + 26, H - 14, z - 0.04, x + 26.08, H + 0.6, z + 0.04, 'steel', { col: false, color: 0x222426 }); }
+      else { box(x - 0.5, H + 0.6, z - 10, x + 0.5, H + 1.6, z + 32, 'steel', { col: false, color: c }); box(x - 1.3, H + 0.2, z - 10, x + 1.3, H + 2.6, z - 6, 'concrete', { col: false, color: 0x6a6a68 }); box(x - 0.04, H - 14, z + 26, x + 0.04, H + 0.6, z + 26.08, 'steel', { col: false, color: 0x222426 }); }
+    }
+    crane(-34, -34, 'x'); crane(38, 33, 'z');
+    (function waterTower(x, z) {
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) box(x + sx * 2.1 - 0.15, 0, z + sz * 2.1 - 0.15, x + sx * 2.1 + 0.15, 15, z + sz * 2.1 + 0.15, 'steel', { col: false, color: 0x6a5a44 });
+      for (const y of [4, 8, 12]) { box(x - 2.1, y, z - 2.1, x + 2.1, y + 0.1, z - 2.0, 'steel', { col: false, color: 0x6a5a44 }); box(x - 2.1, y, z + 2.0, x + 2.1, y + 0.1, z + 2.1, 'steel', { col: false, color: 0x6a5a44 }); box(x - 2.1, y, z - 2.1, x - 2.0, y + 0.1, z + 2.1, 'steel', { col: false, color: 0x6a5a44 }); box(x + 2.0, y, z - 2.1, x + 2.1, y + 0.1, z + 2.1, 'steel', { col: false, color: 0x6a5a44 }); }
+      bld(x, z, 15).cyl(2.9, 2.9, 4.2, x, 17.1, z, 'metal', { axis: 'y', color: 0x9a8e6e, seg: 16 }); bld(x, z, 19).cyl(0.2, 3.1, 1.6, x, 19.9, z, 'metal', { axis: 'y', color: 0x6a6a5c, seg: 16 });
+    })(31, -36);
+    (function stack(x, z) { for (let i = 0; i < 9; i++) bld(x, z, i * 4).cyl(1.25 + 0.05 * (9 - i) * 0.4, 1.3 + 0.05 * (9 - i) * 0.4 + 0.08, 4, x, i * 4 + 2, z, 'concrete', { axis: 'y', color: i % 2 ? 0xb03a2a : 0xd8d4c8, seg: 14 }); })(-46, 16);
+    for (const [x0, z0, x1, z1, h] of [[-26, -60, 26, -46, 13], [46, -14, 62, 24, 10], [-64, -28, -46, 8, 9], [-24, 48, 22, 60, 11]]) { box(x0, 0, z0, x1, h, z1, 'stucco', { col: false, color: 0xb2afa2 }); box(x0 - 0.3, h, z0 - 0.3, x1 + 0.3, h + 0.5, z1 + 0.3, 'concrete', { col: false, color: 0x6a6c6c }); }
+
+    /* ======================================================== GROUP / SKY / LIGHT */
+    const group = new THREE.Group(); group.name = 'map';
+    for (const k of Object.keys(chunks)) {
+      const g = chunks[k].build(M, { cast: true, receive: true });
+      g.traverse((m) => { if (m.isMesh) { if (/^(glass|lamp|sign|cid\d)$/.test(m.name)) m.castShadow = false; m.matrixAutoUpdate = false; } });
+      group.add(g);
+    }
+    scene.add(group);
+    const sunDir = new THREE.Vector3(0.35, 0.9, 0.25).normalize();
+    const dome = new THREE.Mesh(new THREE.SphereGeometry(300, 32, 16), new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide, depthWrite: false, fog: false })); dome.frustumCulled = false; dome.renderOrder = -10; scene.add(dome);
+    const envScene = new THREE.Scene(); envScene.add(new THREE.Mesh(new THREE.SphereGeometry(50, 24, 16), new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide })));
+    const pm = new THREE.PMREMGenerator(renderer); const envTex = pm.fromScene(envScene, 0.0, 0.1, 100).texture; pm.dispose();
+    scene.environment = envTex; if ('environmentIntensity' in scene) scene.environmentIntensity = 0.65;
+    scene.fog = new THREE.FogExp2(0xaeb8b6, 0.006);
+    const sun = new THREE.DirectionalLight(0xe8eef0, 2.7); sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048); const sc = sun.shadow.camera; sc.left = -34; sc.right = 34; sc.top = 34; sc.bottom = -34; sc.near = 1; sc.far = 240;
+    sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.05; scene.add(sun); scene.add(sun.target);
+    sun.target.position.set(0, 0, 0); sun.position.copy(sun.target.position).addScaledVector(sunDir, 120); sun.target.updateMatrixWorld();
+    const hemi = new THREE.HemisphereLight(0xc4d0da, 0x6e725e, 1.6); scene.add(hemi); group.add(new THREE.AmbientLight(0xffffff, 0.25));
+    function update(dt, camPos) { dome.position.copy(camPos); }
+
+    /* ======================================================== WORLD, SPAWN POOL, PICKUPS, HINTS */
+    const groundMat = (x, z) => { for (const p of patches) if (x > p[0] && x < p[2] && z > p[1] && z < p[3]) return 'dirt'; return 'concrete'; };
+    const world = World.create(cols, BOUNDS, groundMat);
+    let inMain = () => true;     // only points the bots' navigation grid can reach are valid spawns / pickups / hints
+    try {
+      const nav = Nav.create(world), mc = nav.mainComp(), ML = nav.N / (nav.w * nav.h), CSZ = Nav.CS;
+      if (mc >= 0) inMain = (x, y, z) => {
+        const cx = Math.floor((x - nav.x0) / CSZ), cz = Math.floor((z - nav.z0) / CSZ); if (cx < 0 || cz < 0 || cx >= nav.w || cz >= nav.h) return false;
+        const b = (cz * nav.w + cx) * ML; for (let l = 0; l < ML; l++) { const yy = nav.y[b + l]; if (!isNaN(yy) && Math.abs(yy - y) < 0.12 && nav.comp[b + l] === mc) return true; } return false;
+      };
+    } catch (e) { }
+    const faceCenter = (x, z) => Math.atan2(x, z);
+    const pool = [];
+    for (let z = -18; z <= 18; z += 2.5) for (let x = -20; x <= 20; x += 2.5) {
+      if (!world.canStand(x, 0, z, 0.5, 1.9, 0.3) || !inMain(x, 0, z)) continue;
+      if (Math.abs(world.surfaceY(x, z, 0.3)) > 0.05) continue;
+      let best = faceCenter(x, z), bd = -1;
+      for (let k = 0; k < 16; k++) { const a = k * Math.PI / 8, dx = -Math.sin(a), dz = -Math.cos(a); const d = world.raycast(x, 1.3, z, dx, 0, dz, 24) ? world.hit.t : 24; const bias = Math.cos(a - faceCenter(x, z)) * 1.5; if (d + bias > bd) { bd = d + bias; best = a; } }
+      pool.push({ x: x, y: 0, z: z, yaw: best });
+    }
+    const spawns = [pool, pool];
+    function nudge(x, z, lvl) { for (let r = 0; r < 4; r += 0.5) for (let k = 0; k < 8; k++) { const px = x + Math.cos(k * 0.785) * r, pz = z + Math.sin(k * 0.785) * r; if (world.canStand(px, lvl, pz, 0.5, 1.9, 0.3) && Math.abs(world.surfaceY(px, pz, lvl + 0.3) - lvl) < 0.06 && inMain(px, lvl, pz)) return [px, pz]; } return null; }
+    const PK = [['m60', 0, 0.3, 0], ['awp', -17, 11, 0], ['shotgun', 0, -11.5, 0], ['mp5', 0, 11.5, 0], ['ak', -12.5, 0, 0], ['m4', 12.5, 0, 0], ['deagle', -15, -13, 0], ['m1911', 15, 13, 0],
+      ['ammo', -10, -11, 0], ['ammo', 10, 11, 0], ['ammo', -10, 11, 0], ['ammo', 10, -11, 0], ['ammo', 0, -2.4, 0], ['ammo', 0, 2.4, 0], ['ammo', -18, -13, 0], ['ammo', 18, 13, 0], ['ammo', 18, -3, 0.0]];
+    const pickups = [];
+    for (const p of PK) { const n = nudge(p[1], p[2], p[3]); if (n) pickups.push({ id: p[0], x: n[0], z: n[1], y: world.surfaceY(n[0], n[1], p[3] + 0.5), yaw: 0 }); }
+    const hints = { free: true, lanes: [], sniperSpots: [], holdSpots: [], cqbSpots: [] };
+    const addHint = (list, x, y, z) => { const n = nudge(x, z, y); if (n) list.push({ x: n[0], y: y, z: n[1] }); };
+    for (const q of [[-18, -16.5], [18, 16.5], [-18, 16.5], [18, -16.5], [-12, -2.4], [12, 2.4]]) { const n = nudge(q[0], q[1], 0); if (n) hints.sniperSpots.push({ x: n[0], y: 0, z: n[1], yaw: faceCenter(n[0], n[1]) }); }
+    for (const q of [[0, 0], [0, -10], [0, 10], [-11, 0], [11, 0], [-12, -12], [12, 12], [-12, 12], [12, -12], [-9, -9], [9, 9], [-9, 9], [9, -9]]) addHint(hints.holdSpots, q[0], 0, q[1]);
+    for (const q of [[0, -3], [0, 3], [-3, 0], [3, 0], [-9.5, -4], [9.5, 4], [-9.5, 4], [9.5, -4], [-4, -12], [4, 12], [-4, 12], [4, -12]]) addHint(hints.cqbSpots, q[0], 0, q[1]);
+    world.groundMat = groundMat;
+
+    return {
+      name: 'SHIPMENT', id: 'shipment', free: true, group: group, colliders: cols, bounds: BOUNDS, spawns: spawns, pickups: pickups, hints: hints, groundMat: groundMat, world: world,
+      sun: sun, sunDir: sunDir, hemi: hemi, dome: dome, focusShadow: () => { }, menu: { r: 28, h: 13, look: [0, 2.0, 0], speed: 0.04 },
+      env: { texture: envTex, sunDir: sunDir, sunColor: sun.color.clone(), sunIntensity: sun.intensity, hemiSky: hemi.color.clone(), hemiGround: hemi.groundColor.clone(), hemiIntensity: hemi.intensity, envIntensity: 0.65 },
+      update: update
+    };
+  }
+  return { build: build, BOUNDS: BOUNDS };
+})();
+
+/* ===== 38_oilrig.js ===== */
+/* ============================================================================
+   38_oilrig.js — "OIL RIG": a semi-submersible drilling rig, far out at sea, on a bright blue-sky day.
+   The playable part is the working deck of the rig (about 210 m from the west tip to the helideck: roughly 25 s of sprinting, or 35 s at a walk, end to end):
+     - WEST: the drill floor (a raised platform under a 60 m red-and-white derrick, open cellar deck beneath it, three stair flights up),
+       a derrick bay with pipe stacks and crates, the stern deck behind it (BOP gantry, riser racks), a flare boom sticking out over the sea;
+     - CENTRE-WEST: the machinery deck - a tank farm and silos along the north / south edges, long pipe racks, and a walk-through pump room;
+     - CENTRE: the open laydown deck - a gantry crane, container stacks, baskets, drums, a generator skid, painted walkways;
+     - CENTRE-EAST: the accommodation block (rooms + a through corridor on the ground floor, roof deck reached by outside stairs),
+       a radio house on its roof, lifeboat stations on the north / south edges, two pedestal cranes;
+     - EAST: a raised helideck (round pad, parked helicopter) reached over a bridge from the radio-house roof or by two long stairs.
+   Three walking levels (deck 0 m, roof deck 3.4 m, radio-house roof / helideck / bridge 6.8 m). Free-for-all spawns.
+   Everything is an axis-aligned box or a vertical cylinder (visuals == colliders) except the thin railings, which are visual only:
+   an invisible, tall, bullet-transparent barrier along every edge keeps everyone on the rig. Deck level is y = 0, the sea sits 24 m below.
+   ============================================================================ */
+const OilRigMap = (function () {
+  'use strict';
+  const PHYS = { stucco: 'concrete', concrete: 'concrete', metal: 'metal', wood: 'wood', asphalt: 'concrete', paving: 'concrete', dirt: 'dirt', steel: 'metal', paint: 'metal', cloth: 'dirt', rubber: 'dirt', glass: 'glass', deck: 'metal', tile: 'tile', roof: 'metal', foliage: 'dirt' };
+  const TS = { stucco: 4, concrete: 3, metal: 2.4, wood: 1.2, deck: 4.8, deckF: 4.8, steel: 2.4, paint: 2.4, tile: 2, tileF: 2, hazard: 1.2, rubber: 2, roof: 2.5, dirt: 5 };
+  const BOUNDS = { minX: -118, maxX: 100, minZ: -38, maxZ: 38 };
+  const SEA = -24;                                   // sea level (the main deck is y = 0)
+  const H1 = 3.4, H2 = 6.8;                          // upper walking levels
+  const RISE = 0.2, TREAD = 0.3, NSTEP = 17;         // stairs: 17 steps per 3.4 m storey
+  const X0 = -62, X1 = 68, ZD = 34;                  // main deck: x range, half width
+  const WX0 = -114, WZ = 22;                         // derrick bay + stern deck: west tip, half width
+  const LQ = { x0: 30, x1: 60, z0: -10, z1: 10 };    // accommodation block
+  const HELI = { x: 80, z: 0, r: 15.5 };             // helideck centre + radius (cantilevered off the east end)
+  const DRILL = { x: -76, z: 0, h: 9 };              // drill floor centre, half size
+  const FOG = 0xbcd9ec;
+  const CL = 6.1, CW = 2.44, CH = 2.6;               // 20 ft container
+  const RED = 0xa8281f, WHITE = 0xe2e1da, YEL = 0xe0b020, ORG = 0xe4571e, GREY = 0x8d9296, DGREY = 0x4b5257;
+
+  function worldUV(g, ts) {
+    const p = g.attributes.position, n = g.attributes.normal, uv = g.attributes.uv;
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i), y = p.getY(i), z = p.getZ(i), ax = Math.abs(n.getX(i)), ay = Math.abs(n.getY(i));
+      if (ax > 0.55) uv.setXY(i, z / ts, y / ts); else if (ay > 0.55) uv.setXY(i, x / ts, z / ts); else uv.setXY(i, x / ts, y / ts);
+    }
+  }
+
+  function build(scene, renderer) {
+    const M = MapTex.create(), rnd = U.rng(7021), cols = [], chunks = {};
+    const bld = (x, z, y) => { const k = Math.floor((x + 120) / 40) + ',' + Math.floor((z + 60) / 40) + ',' + (y > 4 ? 1 : 0); return chunks[k] || (chunks[k] = new U.Builder()); };
+    const cvs = (w, h, draw) => { const c = U.makeCanvas(w, h); draw(c.getContext('2d'), w, h); return c; };
+    const shade = (c, k) => ((((c >> 16) & 255) * k) << 16) | ((((c >> 8) & 255) * k) << 8) | (((c & 255) * k) | 0);
+    const pair2 = (size, fn) => {                    // colour + height map from one pass: fn(u, v, o) -> o[0..2] rgb 0..255, o[3] height 0..1
+      const c = U.makeCanvas(size, size), ctx = c.getContext('2d'), img = ctx.createImageData(size, size), d = img.data;
+      const hc = U.makeCanvas(size, size), hctx = hc.getContext('2d'), himg = hctx.createImageData(size, size), hd = himg.data, o = [0, 0, 0, 0.5];
+      for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+        fn(x / size, y / size, o); const i = (y * size + x) * 4, hv = o[3] * 255;
+        d[i] = o[0]; d[i + 1] = o[1]; d[i + 2] = o[2]; d[i + 3] = 255; hd[i] = hd[i + 1] = hd[i + 2] = hv; hd[i + 3] = 255;
+      }
+      ctx.putImageData(img, 0, 0); hctx.putImageData(himg, 0, 0);
+      return { map: U.texture(c, { aniso: 8 }), bump: U.texture(hc, { srgb: false, aniso: 4 }) };
+    };
+    const over = (m) => { const c = m.clone(); c.polygonOffset = true; c.polygonOffsetFactor = -2; c.polygonOffsetUnits = -2; return c; };
+
+    /* ---------- custom materials ---------- */
+    const deckT = pair2(256, (u, v, o) => {          // painted anti-skid steel plate: plate seams every half tile, a tiny dot pattern
+      const n = U.tfbm(u * 8, v * 8, 8, 3), s = U.tfbm(u * 64, v * 64, 64, 1), fu = (u * 2) % 1, fv = (v * 2) % 1, seam = (fu < 0.014 || fv < 0.014) ? 0.62 : 1;
+      const dx = ((u * 32) % 1) - 0.5, dy = ((v * 32 + (Math.floor(u * 32) % 2) * 0.5) % 1) - 0.5, dot = (dx * dx + dy * dy) < 0.05;
+      const k = (0.8 + 0.26 * n + 0.07 * s) * seam * (dot ? 1.07 : 0.96);
+      o[0] = 196 * k; o[1] = 200 * k; o[2] = 196 * k; o[3] = dot ? 0.85 : 0.3;
+    });
+    M.deck = new THREE.MeshStandardMaterial({ map: deckT.map, bumpMap: deckT.bump, bumpScale: 1.1, vertexColors: true, roughness: 0.8, metalness: 0.18, envMapIntensity: 0.6 });
+    M.deckF = over(M.deck); M.paintF = over(M.paint);
+    const hazT = U.texture(cvs(64, 64, (x, w, h) => { x.fillStyle = '#e0b020'; x.fillRect(0, 0, w, h); x.fillStyle = '#1c1d1e'; for (let i = -2; i < 6; i++) { x.beginPath(); x.moveTo(i * 16, h); x.lineTo(i * 16 + 8, h); x.lineTo(i * 16 + 8 + h, 0); x.lineTo(i * 16 + h, 0); x.closePath(); x.fill(); } }), { aniso: 4 });
+    M.hazard = new THREE.MeshStandardMaterial({ map: hazT, roughness: 0.8, metalness: 0.1, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    M.lampR = new THREE.MeshBasicMaterial({ color: 0xff2a1a, fog: true });
+    M.flare = new THREE.MeshBasicMaterial({ color: 0xffb040, fog: false, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+    /* decal sheets: ID stencils on the containers, the rig name, safety signs, the helipad */
+    const cidTex = (a, b) => U.texture(cvs(256, 64, (x, w, h) => {
+      x.clearRect(0, 0, w, h); x.textAlign = 'left'; x.textBaseline = 'middle'; x.lineWidth = 4; x.strokeStyle = 'rgba(20,20,20,0.55)'; x.fillStyle = 'rgba(236,236,228,0.92)';
+      x.font = 'bold 30px "Courier New", monospace'; x.strokeText(a, 8, 22); x.fillText(a, 8, 22); x.font = 'bold 22px "Courier New", monospace'; x.strokeText(b, 8, 49); x.fillText(b, 8, 49);
+    }), { aniso: 4, clamp: true });
+    [['OSLU 310482 7', '22G1'], ['TTNU 884215 0', '22U1'], ['NORU 602917 3', '22G1']].forEach((t, i) => {
+      M['cid' + i] = new THREE.MeshStandardMaterial({ map: cidTex(t[0], t[1]), transparent: true, depthWrite: false, roughness: 0.85, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    });
+    const decalMat = (tex) => new THREE.MeshStandardMaterial({ map: tex, transparent: true, depthWrite: false, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
+    const signTex = (w, h, draw) => U.texture(cvs(w, h, (x, cw, ch) => { x.clearRect(0, 0, cw, ch); draw(x, cw, ch); }), { aniso: 4, clamp: true });
+    M.sgnName = decalMat(signTex(512, 128, (x, w, h) => { x.fillStyle = 'rgba(236,236,228,0.95)'; x.font = 'bold 84px Arial, Helvetica, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('TITAN-7', w / 2, h / 2 + 4); }));
+    M.sgnMuster = decalMat(signTex(256, 256, (x, w, h) => { x.fillStyle = '#1b7a3f'; x.fillRect(6, 6, w - 12, h - 12); x.strokeStyle = '#ffffff'; x.lineWidth = 6; x.strokeRect(12, 12, w - 24, h - 24); x.fillStyle = '#ffffff'; x.textAlign = 'center'; x.font = 'bold 40px Arial, sans-serif'; x.fillText('MUSTER', w / 2, 70); x.fillText('POINT', w / 2, 112); x.font = 'bold 120px Arial, sans-serif'; x.fillText('A', w / 2, 210); }));
+    M.sgnHat = decalMat(signTex(256, 256, (x, w, h) => { x.fillStyle = '#1f5fb0'; x.beginPath(); x.arc(w / 2, h / 2, 118, 0, 6.2832); x.fill(); x.fillStyle = '#fff'; x.textAlign = 'center'; x.font = 'bold 36px Arial, sans-serif'; x.fillText('HARD HAT', w / 2, 120); x.fillText('AREA', w / 2, 164); }));
+    M.sgnDanger = decalMat(signTex(256, 128, (x, w, h) => { x.fillStyle = '#c8281e'; x.fillRect(4, 4, w - 8, h - 8); x.fillStyle = '#fff'; x.fillRect(4, 36, w - 8, 56); x.fillStyle = '#c8281e'; x.textAlign = 'center'; x.font = 'bold 30px Arial, sans-serif'; x.fillText('HIGH PRESSURE', w / 2, 76); x.fillStyle = '#fff'; x.font = 'bold 28px Arial, sans-serif'; x.fillText('DANGER', w / 2, 28); x.fillText('NO NAKED FLAME', w / 2, 116); }));
+    M.sgnHeli = decalMat(signTex(256, 128, (x, w, h) => { x.fillStyle = '#16171a'; x.fillRect(0, 0, w, h); x.fillStyle = '#e0b020'; x.textAlign = 'center'; x.font = 'bold 46px Arial, sans-serif'; x.fillText('HELIDECK', w / 2, 56); x.font = 'bold 26px Arial, sans-serif'; x.fillText('MAX 12.8 t  -  D 21.2 m', w / 2, 100); }));
+    M.hpad = decalMat(signTex(512, 512, (x, w, h) => {
+      const c = w / 2; x.lineCap = 'butt';
+      x.strokeStyle = '#e8c02a'; x.lineWidth = 14; x.beginPath(); x.arc(c, c, c * 0.93, 0, 6.2832); x.stroke();
+      x.strokeStyle = '#f2f2ea'; x.lineWidth = 9; x.beginPath(); x.arc(c, c, c * 0.62, 0, 6.2832); x.stroke();
+      x.fillStyle = '#f2f2ea'; x.fillRect(c - 92, c - 104, 34, 208); x.fillRect(c + 58, c - 104, 34, 208); x.fillRect(c - 92, c - 17, 184, 34);
+      x.font = 'bold 40px Arial, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillStyle = '#f2f2ea'; x.fillText('TITAN-7', c, c - 150); x.fillText('12.8 t', c, c + 150);
+    }));
+
+    /* ---------- primitives ---------- */
+    function box(x0, y0, z0, x1, y1, z1, mat, o) {
+      o = o || {}; let t;
+      if (x1 < x0) { t = x0; x0 = x1; x1 = t; } if (z1 < z0) { t = z0; z0 = z1; z1 = t; }
+      const w = x1 - x0, h = y1 - y0, d = z1 - z0; if (w <= 0 || h <= 0 || d <= 0) return;
+      if (o.vis !== false) { const g = new THREE.BoxGeometry(w, h, d); g.translate((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2); worldUV(g, TS[mat] || 1); bld((x0 + x1) / 2, (z0 + z1) / 2, (y0 + y1) / 2).geo(g, mat, null, o.color); }
+      if (o.col !== false) cols.push({ t: 'box', min: [x0, y0, z0], max: [x1, y1, z1], mat: o.pm || PHYS[mat] || 'metal', pass: !!o.pass, solid: o.solid !== false });
+    }
+    const vb = (x0, y0, z0, x1, y1, z1, mat, color) => box(x0, y0, z0, x1, y1, z1, mat, { col: false, color: color });
+    function cylC(x, z, r, y0, y1, mat, o) {
+      o = o || {}; if (o.vis !== false) bld(x, z, (y0 + y1) / 2).cyl(r, r, y1 - y0, x, (y0 + y1) / 2, z, mat, { axis: 'y', color: o.color, seg: o.seg || 14 });
+      if (o.col !== false) cols.push({ t: 'cyl', x: x, z: z, r: r, y0: y0, y1: y1, mat: o.pm || PHYS[mat] || 'metal', pass: !!o.pass });
+    }
+    function plane(x0, z0, x1, z1, y, mat, color) {
+      const ax = Math.min(x0, x1), bx = Math.max(x0, x1), az = Math.min(z0, z1), bz = Math.max(z0, z1);
+      const g = new THREE.PlaneGeometry(bx - ax, bz - az); g.rotateX(-Math.PI / 2); g.translate((ax + bx) / 2, y, (az + bz) / 2); worldUV(g, TS[mat] || 3); bld((ax + bx) / 2, (az + bz) / 2, y).geo(g, mat, null, color === undefined ? 0xffffff : color);
+    }
+    const vcyl = (x, y, z, r0, r1, len, axis, mat, color, seg) => bld(x, z, y).cyl(r0, r1, len, x, y, z, mat, { axis: axis, color: color, seg: seg || 10 });   // visual cylinder / cone, any axis (r0 = top, r1 = bottom for axis y)
+    const _ub = new THREE.BoxGeometry(1, 1, 1), _v = new THREE.Vector3(), _zz = new THREE.Vector3(0, 0, 1), _q = new THREE.Quaternion(), _m4 = new THREE.Matrix4(), _sc = new THREE.Vector3(), _pp = new THREE.Vector3();
+    function strut(x0, y0, z0, x1, y1, z1, t, mat, color, t2) {      // a slender beam between two points (visual only)
+      _v.set(x1 - x0, y1 - y0, z1 - z0); const len = _v.length(); if (len < 1e-4) return; _v.divideScalar(len);
+      _q.setFromUnitVectors(_zz, _v); _pp.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2); _sc.set(t, t2 || t, len); _m4.compose(_pp, _q, _sc);
+      bld((x0 + x1) / 2, (z0 + z1) / 2, (y0 + y1) / 2).geo(_ub, mat, _m4, color);
+    }
+    function decal(mat, x, y, z, face, w, h) {    // a flat sheet on a wall / the deck: face = '+x' '-x' '+z' '-z' 'up'
+      const g = new THREE.PlaneGeometry(w, h);
+      if (face === 'up') g.rotateX(-Math.PI / 2); else if (face === '+x') g.rotateY(Math.PI / 2); else if (face === '-x') g.rotateY(-Math.PI / 2); else if (face === '-z') g.rotateY(Math.PI);
+      g.translate(x, y, z); bld(x, z, y).geo(g, mat, null, 0xffffff);
+    }
+    /* stairs: n steps climbing from y0 toward `dir`; (sx, sz) = the foot edge of the lowest step centred across the width w; the steps are solid down to `fill` */
+    function stairs(sx, sz, dir, w, n, y0, color, fill) {
+      const fy = fill === undefined ? y0 : fill;
+      for (let i = 0; i < n; i++) {
+        const t0 = i * TREAD, t1 = (i + 1) * TREAD, top = y0 + RISE * (i + 1);
+        if (dir === '+x') box(sx + t0, fy, sz - w / 2, sx + t1, top, sz + w / 2, 'deck', { color: color });
+        else if (dir === '-x') box(sx - t1, fy, sz - w / 2, sx - t0, top, sz + w / 2, 'deck', { color: color });
+        else if (dir === '+z') box(sx - w / 2, fy, sz + t0, sx + w / 2, top, sz + t1, 'deck', { color: color });
+        else box(sx - w / 2, fy, sz - t1, sx + w / 2, top, sz - t0, 'deck', { color: color });
+        const nx = i % 2 ? 0x2c2f31 : YEL;           // yellow / black nosing
+        if (dir === '+x') vb(sx + t1 - 0.05, top, sz - w / 2, sx + t1, top + 0.012, sz + w / 2, 'paint', nx);
+        else if (dir === '-x') vb(sx - t1, top, sz - w / 2, sx - t1 + 0.05, top + 0.012, sz + w / 2, 'paint', nx);
+        else if (dir === '+z') vb(sx - w / 2, top, sz + t1 - 0.05, sx + w / 2, top + 0.012, sz + t1, 'paint', nx);
+        else vb(sx - w / 2, top, sz - t1, sx + w / 2, top + 0.012, sz - t1 + 0.05, 'paint', nx);
+      }
+      /* handrails on both sides: two sloping rails + posts */
+      const L = n * TREAD, top = y0 + n * RISE;
+      for (const s of [-1, 1]) {
+        const o = s * (w / 2 - 0.05);
+        let a, b;
+        if (dir === '+x') { a = [sx, y0 + 1.0, sz + o]; b = [sx + L, top + 1.0, sz + o]; } else if (dir === '-x') { a = [sx, y0 + 1.0, sz + o]; b = [sx - L, top + 1.0, sz + o]; }
+        else if (dir === '+z') { a = [sx + o, y0 + 1.0, sz]; b = [sx + o, top + 1.0, sz + L]; } else { a = [sx + o, y0 + 1.0, sz]; b = [sx + o, top + 1.0, sz - L]; }
+        strut(a[0], a[1], a[2], b[0], b[1], b[2], 0.06, 'paint', YEL); strut(a[0], a[1] - 0.45, a[2], b[0], b[1] - 0.45, b[2], 0.05, 'paint', YEL);
+        for (let i = 0; i <= 4; i++) { const t = i / 4, px = a[0] + (b[0] - a[0]) * t, pz = a[2] + (b[2] - a[2]) * t, py = a[1] + (b[1] - a[1]) * t; vb(px - 0.035, py - 1.0, pz - 0.035, px + 0.035, py, pz + 0.035, 'paint', YEL); }
+      }
+    }
+    /* walls with openings: ops = [[a, b, h0, h1, 'door' | 'win'], ...] (a, b along the wall; h0..h1 = the opening's height range) */
+    function wallX(zc, xa, xb, y0, y1, th, mat, color, ops) {
+      const z0 = zc - th / 2, z1 = zc + th / 2; let cur = xa;
+      const list = (ops || []).slice().sort((p, q) => p[0] - q[0]);
+      for (const op of list) {
+        const a = op[0], b = op[1], h0 = op[2], h1 = op[3];
+        if (a > cur) box(cur, y0, z0, a, y1, z1, mat, { color: color });
+        if (h0 > y0) box(a, y0, z0, b, h0, z1, mat, { color: color });
+        if (h1 < y1) box(a, h1, z0, b, y1, z1, mat, { color: color });
+        if (op[4] === 'win') box(a, h0, zc - 0.03, b, h1, zc + 0.03, 'glass', { pass: true });
+        cur = b;
+      }
+      if (xb > cur) box(cur, y0, z0, xb, y1, z1, mat, { color: color });
+    }
+    function wallZ(xc, za, zb, y0, y1, th, mat, color, ops) {
+      const x0 = xc - th / 2, x1 = xc + th / 2; let cur = za;
+      const list = (ops || []).slice().sort((p, q) => p[0] - q[0]);
+      for (const op of list) {
+        const a = op[0], b = op[1], h0 = op[2], h1 = op[3];
+        if (a > cur) box(x0, y0, cur, x1, y1, a, mat, { color: color });
+        if (h0 > y0) box(x0, y0, a, x1, h0, b, mat, { color: color });
+        if (h1 < y1) box(x0, h1, a, x1, y1, b, mat, { color: color });
+        if (op[4] === 'win') box(xc - 0.03, h0, a, xc + 0.03, h1, b, 'glass', { pass: true });
+        cur = b;
+      }
+      if (zb > cur) box(x0, y0, cur, x1, y1, zb, mat, { color: color });
+    }
+    /* railings: visual posts + rails, and an invisible 3.4 m barrier (bullets pass, nobody can climb it: the mantle limit is 1.6 m) */
+    function rail(x0, z0, x1, z1, y, o) {
+      o = o || {}; const col = o.color === undefined ? YEL : o.color, dx = x1 - x0, dz = z1 - z0, L = Math.hypot(dx, dz), n = Math.max(1, Math.round(L / 1.9));
+      for (let i = 0; i <= n; i++) { const px = x0 + dx * i / n, pz = z0 + dz * i / n; vb(px - 0.04, y, pz - 0.04, px + 0.04, y + 1.1, pz + 0.04, 'paint', col); }
+      if (Math.abs(dx) >= Math.abs(dz)) { const a = Math.min(x0, x1), b = Math.max(x0, x1); vb(a, y + 1.06, z0 - 0.035, b, y + 1.14, z0 + 0.035, 'paint', col); vb(a, y + 0.55, z0 - 0.03, b, y + 0.61, z0 + 0.03, 'paint', col); vb(a, y, z0 - 0.02, b, y + 0.14, z0 + 0.02, 'paint', 0x4a4f53); if (o.barrier !== false) box(a - 0.15, y, z0 - 0.15, b + 0.15, y + 3.4, z0 + 0.15, 'metal', { vis: false, pass: true }); }
+      else { const a = Math.min(z0, z1), b = Math.max(z0, z1); vb(x0 - 0.035, y + 1.06, a, x0 + 0.035, y + 1.14, b, 'paint', col); vb(x0 - 0.03, y + 0.55, a, x0 + 0.03, y + 0.61, b, 'paint', col); vb(x0 - 0.02, y, a, x0 + 0.02, y + 0.14, b, 'paint', 0x4a4f53); if (o.barrier !== false) box(x0 - 0.15, y, a - 0.15, x0 + 0.15, y + 3.4, b + 0.15, 'metal', { vis: false, pass: true }); }
+    }
+    function railCircle(cx, cz, r, y, col, gaps) {     // gaps = [[angle, half width in m], ...] left open (the bridge)
+      const open = (a, rr) => { if (gaps) for (const g of gaps) { let d = Math.abs(a - g[0]) % 6.2832; if (d > 3.1416) d = 6.2832 - d; if (d * rr < g[1]) return true; } return false; };
+      const n = Math.max(12, Math.round(2 * Math.PI * r / 1.9)), nb = Math.ceil(2 * Math.PI * (r + 0.1) / 0.8);
+      for (let i = 0; i < n; i++) {
+        const a0 = i / n * 6.2832, a1 = (i + 1) / n * 6.2832; if (open((a0 + a1) / 2, r)) continue;
+        const x0 = cx + Math.cos(a0) * r, z0 = cz + Math.sin(a0) * r, x1 = cx + Math.cos(a1) * r, z1 = cz + Math.sin(a1) * r;
+        vb(x0 - 0.04, y, z0 - 0.04, x0 + 0.04, y + 1.1, z0 + 0.04, 'paint', col);
+        strut(x0, y + 1.1, z0, x1, y + 1.1, z1, 0.07, 'paint', col); strut(x0, y + 0.55, z0, x1, y + 0.55, z1, 0.05, 'paint', col);
+      }
+      for (let i = 0; i < nb; i++) { const a = i / nb * 6.2832; if (open(a, r + 0.1)) continue; cylC(cx + Math.cos(a) * (r + 0.1), cz + Math.sin(a) * (r + 0.1), 0.55, y, y + 3.4, 'metal', { vis: false, pass: true }); }
+    }
+    const group = new THREE.Group(), farB = new U.Builder();
+    const fbox = (x0, y0, z0, x1, y1, z1, mat, color) => farB.box(x1 - x0, y1 - y0, z1 - z0, (x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, mat, { color: color });
+
+    /* ======================================================== DECK SURFACES, MARKINGS, HULL, COLUMNS */
+    const DECKC = 0x86928c, line = (x0, z0, x1, z1, col) => plane(x0, z0, x1, z1, 0, 'paintF', col);
+    plane(X0, -ZD, X1, ZD, 0, 'deck', DECKC); plane(WX0, -WZ, X0, WZ, 0, 'deck', DECKC);
+    const frame = (x0, z0, x1, z1, w, col) => { line(x0, z0, x1, z0 + w, col); line(x0, z1 - w, x1, z1, col); line(x0, z0 + w, x0 + w, z1 - w, col); line(x1 - w, z0 + w, x1, z1 - w, col); };
+    { /* safety line 1.2 m in from every open edge + the green central walkway */
+      const YL = 0xd9ac1c, e = 1.2, w = 0.25;
+      line(X0, -ZD + e, X1 - e, -ZD + e + w, YL); line(X0, ZD - e - w, X1 - e, ZD - e, YL);      // north / south
+      line(X1 - e - w, -ZD + e, X1 - e, ZD - e, YL);                                              // east
+      line(X0 + e, -ZD + e, X0 + e + w, -WZ - 0.2, YL); line(X0 + e, WZ + 0.2, X0 + e + w, ZD - e, YL);   // west flanks (the bay opens between them)
+      line(WX0 + e, -WZ + e, X0, -WZ + e + w, YL); line(WX0 + e, WZ - e - w, X0, WZ - e, YL); line(WX0 + e, -WZ + e, WX0 + e + w, WZ - e, YL);   // derrick bay
+      const GR = 0x3f7254, WH = 0xe4e4dc;
+      line(-58, -1.6, 28, 1.6, GR); line(-58, -1.75, 28, -1.6, WH); line(-58, 1.6, 28, 1.75, WH);        // main walkway, derrick to the quarters
+      line(-12.2, -30, -8.8, -3.4, GR); line(-12.2, 3.4, -8.8, 30, GR); line(14.4, -30, 17.6, -3.4, GR); line(14.4, 3.4, 17.6, 30, GR);   // cross walkways
+    }
+    /* hull: the deck box under the deck, a dark lower band, stiffeners and the rig name */
+    vb(X0, -9, -ZD, X1, -0.05, ZD, 'paint', 0xd7d9d3); vb(WX0, -7, -WZ, X0, -0.05, WZ, 'paint', 0xd7d9d3);
+    vb(X0 - 0.03, -9, -ZD - 0.03, X1 + 0.03, -7.6, ZD + 0.03, 'paint', 0x4c5258); vb(WX0 - 0.03, -7, -WZ - 0.03, X0, -5.8, WZ + 0.03, 'paint', 0x4c5258);
+    for (let x = X0 + 4; x < X1; x += 6.5) { vb(x - 0.15, -7.5, -ZD - 0.25, x + 0.15, -0.3, -ZD, 'paint', 0xbfc3bd); vb(x - 0.15, -7.5, ZD, x + 0.15, -0.3, ZD + 0.25, 'paint', 0xbfc3bd); }
+    for (let z = -30; z <= 30; z += 6.5) vb(X1, -7.5, z - 0.15, X1 + 0.25, -0.3, z + 0.15, 'paint', 0xbfc3bd);
+    for (let x = WX0 + 3; x < X0; x += 6.5) { vb(x - 0.15, -5.5, -WZ - 0.25, x + 0.15, -0.3, -WZ, 'paint', 0xbfc3bd); vb(x - 0.15, -5.5, WZ, x + 0.15, -0.3, WZ + 0.25, 'paint', 0xbfc3bd); }
+    decal('sgnName', 12, -4.2, -ZD - 0.32, '-z', 30, 7.5); decal('sgnName', -12, -4.2, ZD + 0.32, '+z', 30, 7.5);
+    const COLX = [-48, 6, 58], COLZ = [-25, 25];
+    for (const cx of COLX) for (const cz of COLZ) { vcyl(cx, -21.5, cz, 5.2, 5.2, 25, 'y', 'paint', RED, 22); vcyl(cx, -9.9, cz, 5.45, 5.45, 1.4, 'y', 'paint', 0x7d1f19, 22); vcyl(cx, -18.5, cz, 5.25, 5.25, 0.5, 'y', 'paint', 0xe6e4dc, 22); }
+    for (const cz of COLZ) vb(-49, -15.5, cz - 1.0, 59, -13.5, cz + 1.0, 'paint', RED);
+    for (const cx of COLX) vb(cx - 1.0, -15.5, -25, cx + 1.0, -13.5, 25, 'paint', RED);
+
+    /* ======================================================== THE SEA, THE SKY, THE FLEET */
+    const foamTex = U.texture(cvs(128, 128, (x, w, h) => { const g = x.createRadialGradient(64, 64, 20, 64, 64, 64); g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(0.35, 'rgba(255,255,255,0.8)'); g.addColorStop(0.55, 'rgba(235,245,250,0.35)'); g.addColorStop(1, 'rgba(255,255,255,0)'); x.fillStyle = g; x.fillRect(0, 0, w, h); }), { clamp: true });
+    const foamMat = new THREE.MeshBasicMaterial({ map: foamTex, transparent: true, depthWrite: false, opacity: 0.9, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    const foams = [];
+    for (const cx of COLX) for (const cz of COLZ) { const m = new THREE.Mesh(new THREE.PlaneGeometry(19, 19), foamMat); m.rotation.x = -Math.PI / 2; m.position.set(cx, SEA + 0.06, cz); m.renderOrder = 1; group.add(m); foams.push(m); }
+    const seaNorm = (() => {
+      const S = 256, c = U.makeCanvas(S, S), ctx = c.getContext('2d'), img = ctx.createImageData(S, S), d = img.data, e = 1 / S, k = 4.5;
+      const hgt = (u, v) => U.tfbm(u * 6, v * 6, 6, 3) + 0.5 * U.tfbm(u * 18 + 3.1, v * 18 + 7.7, 18, 2);
+      for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+        const u = x / S, v = y / S, hx = hgt(u + e, v) - hgt(u - e, v), hy = hgt(u, v + e) - hgt(u, v - e), nx = -hx * k, ny = -hy * k, l = Math.hypot(nx, ny, 1), i = (y * S + x) * 4;
+        d[i] = (nx / l * 0.5 + 0.5) * 255; d[i + 1] = (ny / l * 0.5 + 0.5) * 255; d[i + 2] = (1 / l * 0.5 + 0.5) * 255; d[i + 3] = 255;
+      }
+      ctx.putImageData(img, 0, 0); const t = U.texture(c, { srgb: false, aniso: 8 }); t.repeat.set(2048 / 16, 2048 / 16); return t;
+    })();
+    const seaAlb = (() => {
+      const t = U.texture(U.pixelCanvas(256, 256, (u, v, o) => {
+        const n = U.tfbm(u * 5, v * 5, 5, 4), m = U.tfbm(u * 14 + 1.7, v * 14 + 4.2, 14, 3), cap = Math.max(0, Math.min(1, (m - 0.6) / 0.2)) * 0.32;
+        const k = 0.78 + 0.6 * n; o[0] = (10 * k) * (1 - cap) + 214 * cap; o[1] = (64 * k) * (1 - cap) + 236 * cap; o[2] = (101 * k) * (1 - cap) + 244 * cap;
+      }), { aniso: 8 }); t.repeat.set(2048 / 64, 2048 / 64); return t;
+    })();
+    const seaMat = new THREE.MeshStandardMaterial({ color: 0xffffff, map: seaAlb, normalMap: seaNorm, normalScale: new THREE.Vector2(0.85, 0.85), roughness: 0.17, metalness: 0.05, envMapIntensity: 1.5 });
+    const sea = new THREE.Mesh(new THREE.PlaneGeometry(2048, 2048), seaMat); sea.rotation.x = -Math.PI / 2; sea.position.y = SEA; sea.receiveShadow = false; sea.castShadow = false; sea.frustumCulled = false; group.add(sea);
+
+    const sunDir = new THREE.Vector3(-0.5, 0.72, 0.48).normalize();
+    const skyTex = U.texture(cvs(1024, 256, (x, w, h) => {
+      const HZ = h / 2, R = U.rng(31);
+      let g = x.createLinearGradient(0, 0, 0, HZ); g.addColorStop(0, '#2a62b6'); g.addColorStop(0.35, '#4a8ed6'); g.addColorStop(0.72, '#8fc4ee'); g.addColorStop(1, '#bcd9ec'); x.fillStyle = g; x.fillRect(0, 0, w, HZ);
+      g = x.createLinearGradient(0, HZ, 0, h); g.addColorStop(0, '#bcd9ec'); g.addColorStop(1, '#a9c9df'); x.fillStyle = g; x.fillRect(0, HZ, w, h - HZ);
+      const puff = (cx, cy, rx, ry, r, gc, b, a) => { x.save(); x.translate(cx, cy); x.scale(rx / ry, 1); const q = x.createRadialGradient(0, 0, 0, 0, 0, ry); q.addColorStop(0, 'rgba(' + r + ',' + gc + ',' + b + ',' + a + ')'); q.addColorStop(0.55, 'rgba(' + r + ',' + gc + ',' + b + ',' + (a * 0.65) + ')'); q.addColorStop(1, 'rgba(' + r + ',' + gc + ',' + b + ',0)'); x.fillStyle = q; x.beginPath(); x.arc(0, 0, ry, 0, 6.2832); x.fill(); x.restore(); };
+      for (let i = 0; i < 46; i++) {                       // cumulus: a dim underside, then bright puffs piled on top; wrapped across the seam
+        const u = R() * w, el = 5 + Math.pow(R(), 1.2) * 58, cy = HZ * (1 - el / 90), sc = 0.5 + 0.9 * Math.min(1, el / 40) * (0.6 + R() * 0.7), W = 46 * sc, H = 15 * sc, np = 7 + ((R() * 6) | 0), pts = [];
+        for (let k = 0; k < np; k++) pts.push([(R() * 2 - 1) * W, -Math.abs(R()) * H * 0.9, (0.45 + R() * 0.55) * H]);
+        for (const off of [-w, 0, w]) { for (const p of pts) puff(u + off + p[0], cy + H * 0.25 + p[1] * 0.2, p[2] * 1.9, p[2] * 0.8, 148, 168, 196, 0.34); for (const p of pts) puff(u + off + p[0], cy + p[1], p[2] * 2.1, p[2] * 0.95, 255, 255, 255, 0.82); }
+      }
+      g = x.createLinearGradient(0, HZ - 22, 0, HZ); g.addColorStop(0, 'rgba(206,226,240,0)'); g.addColorStop(1, 'rgba(206,226,240,0.6)'); x.fillStyle = g; x.fillRect(0, HZ - 22, w, 22);      // haze on the horizon
+      const su = (((Math.atan2(sunDir.z, -sunDir.x) / 6.2832) % 1) + 1) % 1 * w, sy = HZ * (1 - Math.asin(sunDir.y) / 1.5708);
+      puff(su, sy, 120, 60, 255, 250, 232, 0.55); puff(su, sy, 44, 22, 255, 252, 240, 0.85); puff(su, sy, 14, 7, 255, 255, 255, 1);
+    }));
+    const dome = new THREE.Mesh(new THREE.SphereGeometry(300, 32, 16), new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide, depthWrite: false, fog: false })); dome.frustumCulled = false; dome.renderOrder = -10; scene.add(dome);
+    { /* the supply vessel standing by off the south side, and a second rig on the horizon */
+      const sx = -18, sz = 84, yb = SEA - 4;
+      farB.prism([[sx - 42, sz - 6.8], [sx + 16, sz - 6.8], [sx + 30, sz], [sx + 16, sz + 6.8], [sx - 42, sz + 6.8]], yb, SEA + 4.2, 'paint', { color: 0x22304a });
+      farB.prism([[sx - 42, sz - 6.9], [sx + 16.1, sz - 6.9], [sx + 30.2, sz], [sx + 16.1, sz + 6.9], [sx - 42, sz + 6.9]], SEA - 1.2, SEA + 0.5, 'paint', { color: 0x8f2b22 });
+      fbox(sx + 2, SEA + 4.2, sz - 5.8, sx + 14, SEA + 12, sz + 5.8, 'paint', WHITE); fbox(sx + 1.6, SEA + 9.4, sz - 6.2, sx + 14.4, SEA + 10.8, sz + 6.2, 'paint', 0x1c2a38); fbox(sx + 5, SEA + 12, sz - 3.6, sx + 12, SEA + 15, sz + 3.6, 'paint', WHITE);
+      fbox(sx - 7, SEA + 12, sz - 2, sx - 2.5, SEA + 16.5, sz + 2, 'paint', 0xb33a22); fbox(sx - 7, SEA + 16, sz - 2.1, sx - 2.5, SEA + 17, sz + 2.1, 'paint', 0x1c1d1e); fbox(sx + 8.4, SEA + 15, sz - 0.1, sx + 8.6, SEA + 22, sz + 0.1, 'steel', 0x8d9296);
+      fbox(sx - 41.5, SEA + 4.2, sz - 6, sx - 40.8, SEA + 6, sz + 6, 'paint', 0xc9ccc6);
+      const CC = [0xd6561c, 0x2e5d9e, 0xd9b025, 0x4f8a4c, 0xcfd2cc, 0xa33a2e];
+      for (let i = 0; i < 6; i++) for (let j = 0; j < 2; j++) { fbox(sx - 38 + i * 6.3, SEA + 4.2, sz - 5 + j * 5.1, sx - 32.2 + i * 6.3, SEA + 6.8, sz - 2.6 + j * 5.1, 'paint', CC[(i * 2 + j) % 6]); if (i % 2 === j) fbox(sx - 38 + i * 6.3, SEA + 6.8, sz - 5 + j * 5.1, sx - 32.2 + i * 6.3, SEA + 9.4, sz - 2.6 + j * 5.1, 'paint', CC[(i + j + 2) % 6]); }
+      const fx = -330, fz = -250, fy = SEA;                       // far rig: deck, four columns, derrick (mostly fog by this distance)
+      fbox(fx - 38, fy + 13, fz - 22, fx + 38, fy + 25, fz + 22, 'paint', 0xcfd2cc); for (const a of [-28, 28]) for (const b of [-14, 14]) fbox(fx + a - 4, fy - 6, fz + b - 4, fx + a + 4, fy + 13, fz + b + 4, 'paint', RED);
+      fbox(fx - 20, fy + 25, fz - 7, fx - 6, fy + 31, fz + 7, 'paint', WHITE); farB.cyl(2.2, 7, 56, fx - 28, fy + 53, fz, 'steel', { axis: 'y', color: 0xb23a2e, seg: 4 });
+    }
+
+    /* ======================================================== PROP KIT: containers, tanks, pipe racks, drums, baskets, cranes, poles */
+    const CCOL = [0xc4542a, 0x2d5a8f, 0xd2a53a, 0x3f7a4a, 0xcdd0c8, 0x9b3a30, 0x2b3a4a, 0x8a8f94];
+    let cidN = 0;
+    function cont(cx, cz, ax, lv, color, o) {         // 20 ft container, long side along `ax`; lv = stacking level; o.base lifts it onto a deck
+      o = o || {}; const y0 = (o.base || 0) + lv * CH, hx = ax === 'x' ? CL / 2 : CW / 2, hz = ax === 'x' ? CW / 2 : CL / 2;
+      box(cx - hx, y0, cz - hz, cx + hx, y0 + CH, cz + hz, 'metal', { color: color });
+      const post = 0x30353a, p = 0.13;
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) vb(cx + sx * hx - (sx > 0 ? p : 0), y0, cz + sz * hz - (sz > 0 ? p : 0), cx + sx * hx + (sx < 0 ? p : 0), y0 + CH, cz + sz * hz + (sz < 0 ? p : 0), 'steel', post);
+      if (ax === 'x') {
+        for (const sz of [-1, 1]) { vb(cx - hx, y0, cz + sz * hz - (sz > 0 ? 0.1 : 0), cx + hx, y0 + 0.1, cz + sz * hz + (sz < 0 ? 0.1 : 0), 'steel', post); vb(cx - hx, y0 + CH - 0.1, cz + sz * hz - (sz > 0 ? 0.1 : 0), cx + hx, y0 + CH, cz + sz * hz + (sz < 0 ? 0.1 : 0), 'steel', post); }
+        for (const k of [-0.7, -0.35, 0.35, 0.7]) vb(cx + hx - 0.04, y0 + 0.15, cz + k - 0.025, cx + hx + 0.012, y0 + CH - 0.15, cz + k + 0.025, 'steel', 0x8c9196);
+        vb(cx + hx - 0.04, y0 + 0.15, cz - 0.02, cx + hx + 0.012, y0 + CH - 0.15, cz + 0.02, 'steel', 0x2a2d30);
+        if (!o.nodecal) decal('cid' + (cidN++ % 3), cx - hx * 0.45, y0 + CH - 0.45, cz - hz - 0.012, '-z', 2.6, 0.65);
+      } else {
+        for (const sx of [-1, 1]) { vb(cx + sx * hx - (sx > 0 ? 0.1 : 0), y0, cz - hz, cx + sx * hx + (sx < 0 ? 0.1 : 0), y0 + 0.1, cz + hz, 'steel', post); vb(cx + sx * hx - (sx > 0 ? 0.1 : 0), y0 + CH - 0.1, cz - hz, cx + sx * hx + (sx < 0 ? 0.1 : 0), y0 + CH, cz + hz, 'steel', post); }
+        for (const k of [-0.7, -0.35, 0.35, 0.7]) vb(cx + k - 0.025, y0 + 0.15, cz + hz - 0.04, cx + k + 0.025, y0 + CH - 0.15, cz + hz + 0.012, 'steel', 0x8c9196);
+        vb(cx - 0.02, y0 + 0.15, cz + hz - 0.04, cx + 0.02, y0 + CH - 0.15, cz + hz + 0.012, 'steel', 0x2a2d30);
+        if (!o.nodecal) decal('cid' + (cidN++ % 3), cx - hx - 0.012, y0 + CH - 0.45, cz - hz * 0.45, '-x', 2.6, 0.65);
+      }
+    }
+    function tank(x, z, r, h, color, o) {
+      o = o || {}; const seg = 24;
+      cylC(x, z, r, 0, h, 'paint', { color: color, seg: seg });
+      if (o.cone) vcyl(x, h + o.cone / 2, z, 0.12, r, o.cone, 'y', 'paint', shade(color, 0.9), seg); else vcyl(x, h + 0.3, z, 0.3, r * 0.97, 0.6, 'y', 'paint', shade(color, 0.9), seg);
+      for (const k of [0.3, 0.64]) vcyl(x, h * k, z, r + 0.05, r + 0.05, 0.2, 'y', 'steel', 0x6e757a, seg);
+      const lx = x + r + 0.05; vb(lx, 0, z - 0.25, lx + 0.05, h + 0.4, z - 0.2, 'steel', 0x4d5459); vb(lx, 0, z + 0.2, lx + 0.05, h + 0.4, z + 0.25, 'steel', 0x4d5459);
+      for (let y = 0.4; y < h; y += 0.4) vb(lx, y, z - 0.22, lx + 0.04, y + 0.05, z + 0.22, 'steel', 0x4d5459);
+    }
+    function pipeRack(x0, z0, x1, z1, h) {            // low steel rack stacked with drill pipe; the long axis is the pipe direction
+      const along = (x1 - x0) >= (z1 - z0), L = along ? x1 - x0 : z1 - z0, W = along ? z1 - z0 : x1 - x0, cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, r = 0.2;
+      box(x0, 0, z0, x1, h, z1, 'steel', { vis: false });
+      for (let t = 0.4; t < L; t += 3.2) { if (along) vb(x0 + t - 0.15, 0, z0, x0 + t + 0.15, 0.32, z1, 'steel', DGREY); else vb(x0, 0, z0 + t - 0.15, x1, 0.32, z0 + t + 0.15, 'steel', DGREY); }
+      const PC = [0x8b9094, 0x7a8590, 0x9a8f80, 0x6f7479], layers = Math.max(1, Math.floor((h - 0.32) / (r * 1.75)));
+      for (let ly = 0; ly < layers; ly++) {
+        const n = Math.floor((W - 0.2) / (2 * r)) - ly, y = 0.32 + r + ly * r * 1.75; if (n < 1) break;
+        for (let k = 0; k < n; k++) { const off = -((n - 1) * r) + k * 2 * r; if (along) vcyl(cx, y, cz + off, r, r, L - 0.3, 'x', 'steel', PC[(k + ly) & 3], 8); else vcyl(cx + off, y, cz, r, r, L - 0.3, 'z', 'steel', PC[(k + ly) & 3], 8); }
+      }
+    }
+    function drums(x0, z0, nx, nz, base) {            // a block of oil drums (one box collider)
+      const s = 0.62, DC = [0x2e5d9e, 0xa83a2e, 0x6f7a80, 0x3f7a4a];
+      box(x0, base || 0, z0, x0 + nx * s, (base || 0) + 0.95, z0 + nz * s, 'steel', { vis: false });
+      for (let i = 0; i < nx; i++) for (let j = 0; j < nz; j++) { vcyl(x0 + (i + 0.5) * s, (base || 0) + 0.46, z0 + (j + 0.5) * s, 0.28, 0.28, 0.92, 'y', 'steel', DC[(i * 3 + j * 5) & 3], 10); vcyl(x0 + (i + 0.5) * s, (base || 0) + 0.93, z0 + (j + 0.5) * s, 0.25, 0.25, 0.04, 'y', 'steel', 0x23262a, 10); }
+    }
+    function basket(x, z, ax, base) {                 // orange cargo basket (vaultable)
+      const w = ax === 'x' ? 1.3 : 0.85, d = ax === 'x' ? 0.85 : 1.3, b = base || 0;
+      box(x - w, b, z - d, x + w, b + 1.15, z + d, 'steel', { color: ORG });
+      vb(x - w + 0.1, b + 1.15, z - d + 0.1, x + w - 0.1, b + 1.3, z + d - 0.1, 'wood', 0x8a6a48); vb(x - w + 0.25, b + 1.3, z - d + 0.25, x + w - 0.25, b + 1.52, z + d - 0.25, 'cloth', 0x3e5a44);
+    }
+    function crane(px, pz, ax, az, elev, len) {       // pedestal crane: solid pedestal, yellow house + cab + lattice boom (visual) leaning out along (ax, az)
+      const l = Math.hypot(ax, az); ax /= l; az /= l; const nxp = -az, nzp = ax;
+      cylC(px, pz, 2.05, 0, 5.2, 'paint', { color: 0xb9bdb8, seg: 20 }); vcyl(px, 0.3, pz, 2.7, 2.7, 0.6, 'y', 'steel', 0x5a6065, 20); vcyl(px, 5.3, pz, 2.5, 2.5, 0.25, 'y', 'steel', 0x3a3f44, 20);
+      const hy = 5.4; box(px - 2.6, hy, pz - 1.9, px + 2.6, hy + 2.8, pz + 1.9, 'paint', { color: YEL, col: false });
+      vb(px - 2.7, hy + 2.8, pz - 2.0, px + 2.7, hy + 2.95, pz + 2.0, 'paint', 0x3a3f44); vb(px - ax * 2.6 - 1.2, hy + 0.2, pz - az * 2.6 - 1.2, px - ax * 2.6 + 1.2, hy + 2.4, pz - az * 2.6 + 1.2, 'steel', 0x5a6065);
+      const cab = (cxx, czz) => { vb(cxx - 1.1, hy + 1.0, czz - 1.1, cxx + 1.1, hy + 3.2, czz + 1.1, 'paint', 0xdcdcd4); vb(cxx + ax * 1.12 - 0.02, hy + 1.6, czz + az * 1.12 - 0.02, cxx + ax * 1.12 + 0.02, hy + 2.9, czz + az * 1.12 + 0.02, 'glass', 0xffffff); };
+      cab(px + nxp * 2.5, pz + nzp * 2.5);
+      const p0 = [px + ax * 1.6, hy + 2.2, pz + az * 1.6], ce = Math.cos(elev), se = Math.sin(elev), tip = [p0[0] + ax * ce * len, p0[1] + se * len, p0[2] + az * ce * len], ch = 0.6, ct = 0.18;
+      for (const s of [-1, 1]) { const o0 = s * ch, o1 = s * ct; strut(p0[0] + nxp * o0, p0[1] - 0.5 * s * 0, p0[2] + nzp * o0, tip[0] + nxp * o1, tip[1], tip[2] + nzp * o1, 0.2, 'paint', YEL); }
+      strut(p0[0], p0[1] - 0.6, p0[2], tip[0], tip[1] - 0.15, tip[2], 0.2, 'paint', YEL);
+      const N = 9; for (let i = 0; i < N; i++) { const t0 = i / N, t1 = (i + 1) / N, w0 = ch + (ct - ch) * t0, w1 = ch + (ct - ch) * t1, a = [p0[0] + (tip[0] - p0[0]) * t0, p0[1] + (tip[1] - p0[1]) * t0 - 0.0, p0[2] + (tip[2] - p0[2]) * t0], b = [p0[0] + (tip[0] - p0[0]) * t1, p0[1] + (tip[1] - p0[1]) * t1, p0[2] + (tip[2] - p0[2]) * t1]; strut(a[0] + nxp * w0, a[1], a[2] + nzp * w0, b[0] - nxp * w1, b[1], b[2] - nzp * w1, 0.07, 'paint', YEL); strut(a[0] - nxp * w0, a[1], a[2] - nzp * w0, b[0] + nxp * w1, b[1], b[2] + nzp * w1, 0.07, 'paint', YEL); }
+      const ap = [px - ax * 0.4, hy + 7.5, pz - az * 0.4]; strut(px - ax * 1.2, hy + 2.9, pz - az * 1.2, ap[0], ap[1], ap[2], 0.22, 'paint', YEL); strut(px + ax * 1.2, hy + 2.9, pz + az * 1.2, ap[0], ap[1], ap[2], 0.22, 'paint', YEL); strut(ap[0], ap[1], ap[2], tip[0], tip[1], tip[2], 0.05, 'steel', 0x30353a);
+      vb(tip[0] - 0.4, tip[1] - 5.5, tip[2] - 0.4, tip[0] + 0.4, tip[1] - 4.6, tip[2] + 0.4, 'steel', 0x30353a); strut(tip[0], tip[1], tip[2], tip[0], tip[1] - 4.6, tip[2], 0.04, 'steel', 0x30353a);
+      vb(tip[0] - 0.15, tip[1], tip[2] - 0.15, tip[0] + 0.15, tip[1] + 0.3, tip[2] + 0.15, 'lamp', 0xffffff);
+    }
+    function lightPole(x, z, base) {
+      const b = base || 0; cylC(x, z, 0.14, b, b + 7, 'steel', { color: 0x7d8388, seg: 8 }); vb(x - 0.6, b + 6.8, z - 0.1, x + 0.6, b + 7.1, z + 0.1, 'steel', 0x3a3f44); vb(x - 0.55, b + 6.7, z - 0.07, x + 0.55, b + 6.8, z + 0.07, 'lamp', 0xffffff);
+    }
+
+    /* ======================================================== WEST: DRILL FLOOR, DERRICK, FLARE BOOM */
+    const DX = DRILL.x, DH = DRILL.h, PX0 = DX - DH, PX1 = DX + DH;       // platform x -85 .. -67, z -9 .. 9
+    const FLOORC = 0x66716d;
+    box(PX0, H1 - 0.4, -DH, PX1, H1, DH, 'deck', { color: FLOORC });
+    for (const x of [PX0 + 1.5, DX, PX1 - 1.5]) for (const z of [-DH + 2, 0, DH - 2]) { if (x === DX && z === 0) continue; cylC(x, z, 0.42, 0, H1 - 0.4, 'steel', { color: RED, seg: 10 }); }
+    cylC(DX, 0, 1.35, 0, 2.95, 'steel', { color: 0xa8281f, seg: 16 }); for (const y of [0.6, 1.5, 2.4]) vcyl(DX, y, 0, 1.55, 1.55, 0.16, 'y', 'steel', 0xe2e1da, 16);          // blowout preventer stack in the cellar
+    vb(PX0, 0.0, -DH, PX0 + 0.12, H1 - 0.4, DH, 'paint', 0x3a3f44);                                                                       // skirt plate on the west side
+    stairs(PX1 + 5.1 - 0.0, 0, '-x', 4, NSTEP, 0, 0x6f7a76);                                                                               // east flight (the pipe ramp side)
+    stairs(DX + 4, -DH - 5.1, '+z', 2.4, NSTEP, 0, 0x6f7a76); stairs(DX + 4, DH + 5.1, '-z', 2.4, NSTEP, 0, 0x6f7a76);                     // north / south flights
+    { const y = H1;
+      rail(PX0, -DH, DX + 2.8, -DH, y); rail(DX + 5.2, -DH, PX1, -DH, y); rail(PX0, DH, DX + 2.8, DH, y); rail(DX + 5.2, DH, PX1, DH, y);      // flights arrive between x = DX+2.8 and DX+5.2
+      rail(PX0, -DH, PX0, DH, y); rail(PX1, -DH, PX1, -2, y); rail(PX1, 2, PX1, DH, y); }
+    /* on the drill floor */
+    box(PX0 + 0.3, H1, -3.2, PX0 + 5.3, H1 + 3.0, 3.2, 'metal', { color: 0xd9d6cc }); vb(PX0 + 5.31, H1 + 1.0, -2.5, PX0 + 5.35, H1 + 2.4, 2.5, 'glass', 0xffffff); vb(PX0 + 0.2, H1 + 3.0, -3.4, PX0 + 5.4, H1 + 3.2, 3.4, 'paint', 0x3a3f44);   // driller's cabin
+    cylC(DX, 0, 1.7, H1, H1 + 0.38, 'steel', { color: 0x3a4146, seg: 20 });                                                                      // rotary table
+    vcyl(DX, H1 + 14, 0, 0.22, 0.22, 28, 'y', 'steel', 0x9aa0a4, 10); vb(DX - 0.8, H1 + 0.4, -0.8, DX + 0.8, H1 + 0.9, 0.8, 'steel', 0x30353a);
+    box(DX + 2.2, H1, -7.4, DX + 7.4, H1 + 1.1, -5.9, 'steel', { color: 0x6f7479 }); box(DX + 2.2, H1, 5.9, DX + 7.4, H1 + 1.1, 7.4, 'steel', { color: 0x6f7479 });   // tubular racks
+    box(DX - 2.2, H1, -7.6, DX + 0.6, H1 + 1.3, -6.3, 'wood', { color: 0x8a6a48 }); box(DX - 2.6, H1, 6.2, DX - 0.4, H1 + 1.2, 7.6, 'wood', { color: 0x7a5c3e }); box(DX + 1.2, H1, 2.2, DX + 2.6, H1 + 0.9, 3.8, 'steel', { color: ORG });
+    vb(DX + 2.8, H1, -1.2, DX + 3.9, H1 + 1.7, 0.2, 'steel', 0xe0b020); vcyl(DX + 3.35, H1 + 1.7, -0.5, 0.35, 0.35, 0.6, 'y', 'steel', 0x30353a, 10);   // iron roughneck
+    /* derrick: four leaning legs in red / white bands, ladder frames and X-bracing; the lower 6 m of each leg is a solid pillar on the drill floor */
+    (function derrick() {
+      const B = 8.2, T = 2.9, HT = 58, NP = 9, base = H1, ccx = DX, ccz = 0, at = (sx, sz, t) => [ccx + sx * (B + (T - B) * t), base + HT * t, ccz + sz * (B + (T - B) * t)];
+      const bandC = (i) => (i % 2 ? WHITE : RED), sgn = [[-1, -1], [-1, 1], [1, 1], [1, -1]];
+      for (const s of sgn) { cylC(ccx + s[0] * B, ccz + s[1] * B, 0.62, base, base + 5.5, 'steel', { color: RED, seg: 8 }); for (let i = 0; i < NP; i++) { const a = at(s[0], s[1], i / NP), b = at(s[0], s[1], (i + 1) / NP); strut(a[0], a[1], a[2], b[0], b[1], b[2], 0.7 - 0.35 * (i / NP), 'steel', bandC(i)); } }
+      for (let j = 1; j <= NP; j++) {
+        const t = j / NP;
+        for (let k = 0; k < 4; k++) { const a = at(sgn[k][0], sgn[k][1], t), b = at(sgn[(k + 1) % 4][0], sgn[(k + 1) % 4][1], t); strut(a[0], a[1], a[2], b[0], b[1], b[2], 0.22, 'steel', bandC(j)); }
+        if (j < NP) for (let k = 0; k < 4; k++) { const k2 = (k + 1) % 4, a0 = at(sgn[k][0], sgn[k][1], (j - 1) / NP), a1 = at(sgn[k2][0], sgn[k2][1], j / NP), b0 = at(sgn[k2][0], sgn[k2][1], (j - 1) / NP), b1 = at(sgn[k][0], sgn[k][1], j / NP); strut(a0[0], a0[1], a0[2], a1[0], a1[1], a1[2], 0.14, 'steel', 0xc9c8c0); strut(b0[0], b0[1], b0[2], b1[0], b1[1], b1[2], 0.14, 'steel', 0xc9c8c0); }
+      }
+      for (let k = 0; k < 4; k++) { const a = at(sgn[k][0], sgn[k][1], 1 / NP), b = at(sgn[(k + 1) % 4][0], sgn[(k + 1) % 4][1], 1 / NP); strut(a[0], a[1], a[2], b[0], b[1], b[2], 0.3, 'steel', RED); }
+      const top = base + HT; vb(ccx - 3, top, ccz - 3, ccx + 3, top + 2.4, ccz + 3, 'steel', 0x5a6065); vb(ccx - 2.2, top + 2.4, ccz - 2.2, ccx + 2.2, top + 3.4, ccz + 2.2, 'steel', RED); vb(ccx - 0.12, top + 3.4, ccz - 0.12, ccx + 0.12, top + 8, ccz + 0.12, 'steel', 0x9aa0a4);
+      vb(ccx - 0.3, top + 8, ccz - 0.3, ccx + 0.3, top + 8.6, ccz + 0.3, 'lampR', 0xffffff);
+      vb(ccx - 2.5, base + 24, ccz - 2.5, ccx + 2.5, base + 24.5, ccz + 2.5, 'steel', 0x6f7479); vb(ccx - 4, base + 14, ccz - 4, ccx + 4, base + 14.4, ccz + 4, 'steel', 0x6f7479);       // racking platforms
+    })();
+    /* the flare boom: a lattice arm reaching out over the sea from the north-west corner, with a burning tip */
+    const FLARE = { x: WX0 - 30, y: 24, z: -WZ - 22 };
+    (function flareBoom() {
+      const a = [WX0 + 1.4, 1.2, -WZ + 1.4], b = [FLARE.x, FLARE.y, FLARE.z], dx = b[0] - a[0], dz = b[2] - a[2], l = Math.hypot(dx, dz), nx = -dz / l, nz = dx / l, N = 14;
+      box(WX0 + 0.3, 0, -WZ + 0.3, WX0 + 3.2, 1.3, -WZ + 3.2, 'steel', { color: 0x5a6065 });
+      for (const s of [-1, 1]) strut(a[0] + nx * 0.9 * s, a[1], a[2] + nz * 0.9 * s, b[0] + nx * 0.3 * s, b[1], b[2] + nz * 0.3 * s, 0.22, 'steel', s > 0 ? WHITE : RED);
+      for (let i = 0; i < N; i++) { const t0 = i / N, t1 = (i + 1) / N, w0 = 0.9 - 0.6 * t0, w1 = 0.9 - 0.6 * t1, p = (t) => [a[0] + dx * t, a[1] + (b[1] - a[1]) * t, a[2] + dz * t]; const P0 = p(t0), P1 = p(t1); strut(P0[0] + nx * w0, P0[1], P0[2] + nz * w0, P1[0] - nx * w1, P1[1], P1[2] - nz * w1, 0.1, 'steel', 0xc9c8c0); strut(P0[0] - nx * w0, P0[1], P0[2] - nz * w0, P1[0] + nx * w1, P1[1], P1[2] + nz * w1, 0.1, 'steel', 0xc9c8c0); }
+      strut(a[0], a[1] + 14, a[2], b[0], b[1], b[2], 0.06, 'steel', 0x30353a); vb(a[0] - 0.3, 1.2, a[2] - 0.3, a[0] + 0.3, a[1] + 14.2, a[2] + 0.3, 'steel', 0x8d9296);
+      vb(b[0] - 0.5, b[1] - 0.2, b[2] - 0.5, b[0] + 0.5, b[1] + 1.4, b[2] + 0.5, 'steel', 0x3a3f44);
+    })();
+
+    /* ---- derrick bay props ---- */
+    pipeRack(-92, -20.6, -80.5, -17.2, 1.5); drums(-78.5, -20.2, 4, 3); cont(-65.4, -18.6, 'x', 0, CCOL[3]); cont(-65.4, -18.6, 'x', 1, CCOL[0]); basket(-88.4, -12.6, 'x');
+    cont(-90.6, 15.6, 'z', 0, CCOL[1]); cont(-87.9, 15.6, 'z', 0, CCOL[2]); cont(-89.25, 15.6, 'z', 1, CCOL[4]); basket(-82, 17.4, 'z'); drums(-79.5, 14.2, 3, 3); pipeRack(-91, 19, -84, 21.4, 1.2);
+    box(-92.6, 0, -5.4, -90.4, 1.0, -2.6, 'steel', { color: 0x4d5459 }); box(-92.6, 0, 2.6, -90.4, 1.0, 5.4, 'steel', { color: 0x4d5459 });                    // winch skids behind the derrick
+    /* ---- the stern deck: BOP gantry in the middle, riser racks and container stacks along the edges ---- */
+    for (const x of [-109.6, -100.4]) for (const z of [-3.4, 3.4]) { box(x - 0.3, 0, z - 0.3, x + 0.3, 6.6, z + 0.3, 'steel', { color: YEL }); vb(x - 0.55, 0, z - 0.55, x + 0.55, 0.4, z + 0.55, 'steel', 0x3a3f44); }
+    vb(-110.0, 6.6, -3.8, -100.0, 7.0, -3.0, 'steel', YEL); vb(-110.0, 6.6, 3.0, -100.0, 7.0, 3.8, 'steel', YEL); vb(-110.0, 6.6, -3.8, -109.2, 7.0, 3.8, 'steel', YEL); vb(-100.8, 6.6, -3.8, -100.0, 7.0, 3.8, 'steel', YEL);
+    for (const z of [-3.4, 3.4]) { strut(-109.6, 0.4, z, -105, 6.6, z, 0.16, 'steel', YEL); strut(-100.4, 0.4, z, -105, 6.6, z, 0.16, 'steel', YEL); }
+    box(-108.4, 0.5, -1.3, -101.6, 2.7, 1.3, 'steel', { color: 0xa8281f }); for (const x of [-107.2, -105, -102.8]) vcyl(x, 1.6, 0, 1.45, 1.45, 0.3, 'x', 'steel', 0xe2e1da, 14); vb(-108.4, 2.7, -0.6, -101.6, 3.6, 0.6, 'steel', 0x3a3f44);
+    pipeRack(-112.2, -20.4, -96, -17.2, 1.4); pipeRack(-112.2, 17.2, -98, 20.4, 1.4); drums(-108, 9.4, 3, 3); drums(-110.4, -11.6, 2, 3); basket(-96.8, -6.4, 'z'); basket(-96.8, 6.2, 'z');
+    cont(-112.6, -8.4, 'z', 0, CCOL[5]); cont(-112.6, -8.4, 'z', 1, CCOL[1]); cont(-112.6, 8.2, 'z', 0, CCOL[3]); cont(-104, 13.4, 'x', 0, CCOL[2]); cont(-104, -13.6, 'x', 0, CCOL[7]); cont(-104, -13.6, 'x', 1, CCOL[0]);
+    lightPole(-112, -15); lightPole(-112, 15); lightPole(-96, -15); lightPole(-96, 15); decal('sgnDanger', -98.4, 2.2, -8.2, '+x', 1.6, 0.8);
+    lightPole(-90, -12); lightPole(-90, 12); lightPole(-64, -12); lightPole(-64, 12);
+    decal('sgnHat', PX0 + 0.13, 2.0, 0, '+x', 1.1, 1.1);
+
+    /* ======================================================== CENTRE-WEST: TANK FARM, SILOS, PIPE RACKS, PUMP ROOM */
+    pipeRack(-58, -21, -44, -17.5, 1.5); pipeRack(-40, -21, -26, -17.5, 1.5); pipeRack(-58, 17.5, -44, 21, 1.2); pipeRack(-40, 17.5, -26, 21, 1.2);
+    for (const x of [-40, -30.4, -20.8]) tank(x, -28.4, 3.6, 8, 0xdddcd2);
+    decal('sgnDanger', -40, 2.6, -24.79, '+z', 1.3, 0.65); decal('sgnDanger', -30.4, 2.6, -24.79, '+z', 1.3, 0.65);
+    for (const x of [-38, -31.5, -25]) { tank(x, 28.5, 2.2, 11, 0xcdd1cc, { cone: 2.4 }); vcyl(x, 10.2, 28.5, 2.27, 2.27, 0.9, 'y', 'paint', RED, 22); }
+    box(-17, 0, 25.6, -9.4, 3.4, 31.4, 'metal', { color: 0xb9bdb5 }); vb(-17.1, 3.4, 25.5, -9.3, 3.6, 31.5, 'paint', 0x4b5257); decal('sgnDanger', -13.2, 2.0, 25.58, '-z', 1.8, 0.9);
+    crane(-53, -30.4, -1, -0.62, 0.95, 30); crane(-53, 30.4, -1, 0.62, 0.95, 30);
+    { /* PUMP ROOM: x -46..-26, z -8..8 - a walk-through shed with two doors on each long side and a wide opening at each end */
+      const WC = 0xcfd2cc, rx0 = -46, rx1 = -26, rz = 8, ht = 4.4;
+      wallX(-rz, rx0, rx1, 0, ht, 0.4, 'metal', WC, [[-42, -38.4, 0, 3.2, 'door'], [-33.6, -30, 0, 3.2, 'door']]);
+      wallX(rz, rx0, rx1, 0, ht, 0.4, 'metal', WC, [[-42, -38.4, 0, 3.2, 'door'], [-33.6, -30, 0, 3.2, 'door']]);
+      wallZ(rx0, -rz, rz, 0, ht, 0.4, 'metal', WC, [[-2.4, 2.4, 0, 3.2, 'door']]); wallZ(rx1, -rz, rz, 0, ht, 0.4, 'metal', WC, [[-2.4, 2.4, 0, 3.2, 'door']]);
+      box(rx0 - 0.25, ht, -rz - 0.25, rx1 + 0.25, ht + 0.3, rz + 0.25, 'metal', { color: 0x9aa09a });
+      plane(rx0, -rz, rx1, rz, 0.003, 'paintF', 0x3f464a);
+      for (const x of [-41.2, -35.6, -30.4]) { box(x - 1.7, 0, -1.4, x + 1.7, 1.9, 1.4, 'steel', { color: 0x2e6a4a }); vb(x - 1.5, 1.9, -0.9, x + 1.5, 2.3, 0.9, 'steel', 0x8d9296); vcyl(x, 2.9, 0, 0.18, 0.18, 1.2, 'y', 'steel', 0x9aa0a4, 8); }
+      cylC(-43.4, 5.2, 0.85, 0, 3.2, 'steel', { color: 0xb23a2e, seg: 14 }); cylC(-28.6, -5.4, 0.85, 0, 3.2, 'steel', { color: 0xb23a2e, seg: 14 });
+      box(-27.4, 0, 3.8, -26.4, 2.2, 5.4, 'metal', { color: 0x7d8388 }); box(-45.6, 0, -5.6, -44.6, 2.2, -4.0, 'metal', { color: 0x7d8388 });
+      for (const x of [-44, -38, -32, -27.2]) { vb(x - 0.1, 3.5, -7.6, x + 0.1, 4.2, 7.6, 'steel', 0x8d9296); vb(x - 0.5, 4.15, -2.2, x + 0.5, 4.25, 2.2, 'lamp', 0xffffff); }
+      vb(rx0 + 0.3, 3.45, -0.3, rx1 - 0.3, 3.75, 0.3, 'steel', 0xb23a2e); vcyl(-36, ht + 0.5, -4, 0.6, 0.6, 1.0, 'y', 'steel', 0x6e757a, 12); vcyl(-31, ht + 0.5, 4, 0.6, 0.6, 1.0, 'y', 'steel', 0x6e757a, 12);
+      decal('sgnHat', -36.1, 2.4, -rz - 0.22, '-z', 1.0, 1.0); decal('sgnDanger', -28.5, 2.5, rz + 0.22, '+z', 1.8, 0.9);
+    }
+
+    /* ======================================================== CENTRE: THE LAYDOWN DECK */
+    cont(-12, -22.5, 'x', 0, CCOL[1]); cont(-12, -25, 'x', 0, CCOL[5]); cont(-12, -23.75, 'x', 1, CCOL[2]); frame(-16, -27.4, -7.6, -20, 0.12, 0xe4e4dc);
+    cont(8, -25, 'x', 0, CCOL[0]); cont(8, -25, 'x', 1, CCOL[4]); cont(16.5, -20.5, 'z', 0, CCOL[3]); frame(4, -28.2, 19, -17, 0.12, 0xe4e4dc);
+    cont(-8, 24.5, 'x', 0, CCOL[6]); cont(-8, 22, 'x', 0, CCOL[2]); cont(-2.2, 25.5, 'z', 0, CCOL[1]); cont(-2.2, 25.5, 'z', 1, CCOL[5]); frame(-12, 19.8, 1.5, 28.8, 0.12, 0xe4e4dc);
+    cont(11, 22.5, 'x', 0, CCOL[7]); cont(11, 22.5, 'x', 1, CCOL[0]); cont(19, 25.5, 'x', 0, CCOL[4]); cont(19, 23, 'x', 0, CCOL[3]); frame(6, 19.5, 24, 28.2, 0.12, 0xe4e4dc);
+    cont(-4.5, -9.2, 'z', 0, CCOL[4]); cont(21, 6.2, 'z', 0, CCOL[2]); cont(-19.5, 10.5, 'x', 0, CCOL[5]); cont(-22.2, -11.4, 'z', 0, CCOL[1]);
+    basket(4.5, 6.6, 'x'); basket(-1.6, -5.5, 'z'); basket(20.4, -8.5, 'x'); basket(-16.4, 15.8, 'z'); basket(24.6, 15.4, 'x');
+    drums(-6.2, 3.6, 3, 2); drums(14.6, 4.2, 2, 3); drums(-24.2, 13, 2, 2); drums(10.6, -9.6, 2, 2); drums(-2.5, -29.6, 3, 2); drums(24, -26.6, 2, 3);
+    box(10, 0, -3.2, 16.2, 2.6, -0.8, 'metal', { color: 0xd8ae2a }); vb(10.1, 2.6, -3.1, 16.1, 2.75, -0.9, 'steel', 0x3a3f44); vcyl(11.2, 3.7, -2.0, 0.22, 0.22, 2.2, 'y', 'steel', 0x30353a, 8); vcyl(13.0, 3.7, -2.0, 0.22, 0.22, 2.2, 'y', 'steel', 0x30353a, 8); decal('sgnDanger', 13.1, 1.6, -0.78, '+z', 1.8, 0.9);   // generator skid
+    box(-20.4, 0, 1.4, -14.6, 2.6, 4.2, 'metal', { color: 0xdcdbd2 }); vb(-20.5, 2.6, 1.3, -14.5, 2.75, 4.3, 'steel', 0x4b5257); for (const x of [-19.4, -17.6, -15.8]) vcyl(x, 3.7, 2.8, 0.28, 0.28, 2.2, 'y', 'steel', 0x9aa0a4, 8);   // cement unit
+    box(-6, 0, -1.2, -1.2, 1.1, 1.2, 'steel', { color: 0x6f7479 }); vb(-5.8, 1.1, -1.0, -1.4, 1.5, 1.0, 'steel', 0xe0b020);                                                                                 // BOP skid (vaultable)
+    box(18.2, 0, 11, 21.4, 1.3, 13.6, 'wood', { color: 0x7a5c3e }); box(-26.2, 0, 22.0, -23, 1.2, 24.6, 'wood', { color: 0x8a6a48 }); box(26, 0, -14, 28.6, 1.2, -11.6, 'wood', { color: 0x7a5c3e });
+    { /* gantry crane over the central lane */
+      for (const z of [-13, 13]) { box(1.4, 0, z - 0.5, 2.6, 9.4, z + 0.5, 'steel', { color: YEL }); vb(1.0, 0, z - 0.9, 3.0, 0.5, z + 0.9, 'steel', 0x3a3f44); }
+      vb(1.2, 9.4, -14, 2.8, 10.6, 14, 'steel', YEL); vb(0.9, 10.6, -14, 3.1, 10.8, 14, 'steel', 0x3a3f44); vb(1.5, 8.3, -1.4, 2.5, 9.4, 1.4, 'steel', 0x3a3f44); strut(2, 8.3, 0, 2, 5.4, 0, 0.05, 'steel', 0x30353a); vb(1.6, 4.9, -0.4, 2.4, 5.4, 0.4, 'steel', 0xe0b020);
+      for (const z of [-13, 13]) { strut(2, 7.4, z - 0.5, 2, 9.4, z - 2.6, 0.18, 'steel', YEL); strut(2, 7.4, z + 0.5, 2, 9.4, z + 2.6, 0.18, 'steel', YEL); }
+    }
+    for (const q of [[-24, -6], [-24, 6], [0, -17], [0, 17], [24, -17], [24, 17], [-16, -17], [-16, 17]]) lightPole(q[0], q[1]);
+    decal('sgnMuster', -25.78, 1.8, -5, '+x', 1.2, 1.2);
+
+    /* ======================================================== EAST: LIFEBOATS, CORNER CRANES */
+    function lifeboat(cx, z, side) {                 // an orange lifeboat hanging in its davits at the deck edge (side -1 = north edge, +1 = south edge)
+      const wz = z - side * 1.37;                    // the inboard side (facing the deck) carries the windows

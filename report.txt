@@ -1,0 +1,267 @@
+total 2686 KB, 21375 lines, 23 chunks
+
+CHUNKS
+part_001.html  23 KB  starts: '<!doctype html>\r\n<html lang="en">\r\n<head>\r\n<meta charset="ut'
+part_002.html  666 KB  starts: 'const t="170",e={LEFT:0,MIDDLE:1,RIGHT:2,ROTATE:0,DOLLY:1,PA'  <-- oversized (likely a library)
+part_003.html  98 KB  starts: 'return {ACESFilmicToneMapping:et,AddEquation:y,AddOperation:'
+part_004.html  98 KB  starts: '        if (alongX) { const a = x0 + i * L; box(a + 0.04, 0,'
+part_005.html  98 KB  starts: '    raw(() => { for (const xc of [9.3, 11.5, 13.7, 15.9, 18.'
+part_006.html  97 KB  starts: '    M.sign = new THREE.MeshStandardMaterial({ roughness: 0.7'
+part_007.html  98 KB  starts: '      box(cx - 4.5, 0.4, z - 1.35, cx + 4.5, 3.0, z + 1.35, '
+part_008.html  98 KB  starts: "      vertexShader: 'attribute vec4 aColor; attribute float "
+part_009.html  98 KB  starts: "      for (let i = 0; i < 6; i++) bx(S, 'dark', 0.31 + i * 0"
+part_010.html  98 KB  starts: '    const sp = st.special, C = st.cloth, H = st.helm, RB = ['
+part_011.html  97 KB  starts: '    if (iv && s.acc < iv) { s.dirty = true; return; }\r\n    d'
+part_012.html  94 KB  starts: '  const FH_S = new V3(-0.28, -0.35, -0.44), FH_D = new V3(-0'
+part_013.html  98 KB  starts: "      'SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjYwLjE2LjEwMAAAAAAAA"
+part_014.html  97 KB  starts: '  function kcKick(cfg, ads) { if (A && A.cx) A.cx.kv += 8 * '
+part_015.html  98 KB  starts: '    cam.position.set(B.x + bobX * Math.cos(P.yaw) - Math.sin'
+part_016.html  98 KB  starts: '        if (!LD.imgs[w.id] && pvOK) LD.imgs[w.id] = pvShot(w'
+part_017.html  98 KB  starts: '    R.setRenderTarget(useDepth ? sceneRT : hdrRT); R.clear()'
+part_018.html  98 KB  starts: '        if (o.seep) { const sd = o.seep, ex = x + Math.cos(y'
+part_019.html  98 KB  starts: '      let g = o.geometry.index ? o.geometry.toNonIndexed() :'
+part_020.html  98 KB  starts: '      if (my === LS.seq && G.lobby && id !== G.mapId) { try '
+part_021.html  98 KB  starts: '      if (!n.rest) { const steps = Math.max(1, Math.ceil(dt '
+part_022.html  97 KB  starts: '    if (rc) rcRemove(); rc = null; if (msl) { mslDetach(msl)'
+part_023.html  49 KB  starts: 'function noteBest(team,pts,t,victim,head,playerId){if(!(team'
+
+KEYWORD HITS
+
+## grenade
+part_012: /* grenade throw: the left hand lets go of the gun and drops off-screen to where the throwing arm (Equipment) starts and ends; the right han
+part_012: { const lv = !hideW && st.thrW < 0.9; if (UA[0].visible !== lv) UA[0].visible = lv; }   /* the throwing arm draws the left hand while a gren
+part_012: if (wpnL) wpnL.visible = !!akHold && !hideW && st.thrW < 0.9;   /* Akimbo: the left gun hides while a grenade / knife is out */
+part_014: /* ---- tracked world objects (thrown grenades, blasts, the RC-XD car ...): every sample is kept so the replay can put them back where they 
+part_014: const bfC = A.ch ? chaseApply(A.ch, pt, C, A.cst, dt * sc) : 0;   /* the final kill was a throwable: leave the player, follow the grenade / 
+part_014: /* firing and throwing a grenade break a sprint - unless you run Gung-Ho (hipfire needs a one-handed gun; throwing works with any). Reloadin
+part_014: /* one-handed fire mid-vault: same rules as the other one-handed cases (Gung-Ho sprint, grenade throw): any gun except pump / bolt actions a
+part_015: function downedInput(inp) {   /* downed: crawl only; pistol only; no sprint / jump / slide / dive / stance change / weapon swap / grenades *
+part_016: if (b.thr) {   // ---- grenade throw in progress: stand still, face the target, wind up, release at 0.37s (same timings as the player)
+part_016: if (typeof Equipment !== 'undefined' && !ws.reload && !b.swit && B.grounded && b.cover !== 'hiding') {   // ---- grenades: flush a target ou
+part_019: if (!ksK && !expl) {   /* skill kills: your own gun / knife, not killstreaks or grenades */
+part_020: LETHAL   (default G): frag grenade - fused, bounces, radial damage blocked by cover.
+part_020: const FAKE_WS = { cfg: { id: 'frag', name: 'FRAG GRENADE', kind: 'explosive' } };
+part_020: let nades = [], knives = [], netGrenadeId = 0, netGrenadeEvents = [], cur = { t: 'flash', l: 'frag' }, stimEl = null, cookEl = null, blasts 
+part_020: /* place the left hand by its WRIST position and finger direction (the grenade poseArm places it by the object's centre) */
+part_020: /* grenade centre G in camera space; the LEFT hand wraps it from the left side (mirror of the old right-hand pose) */
+part_020: netGrenadeEvents.length = 0; clearWorld(); thr = null; fl.t = 0; hudKey = ''; inv.frag = inv.flash = inv.knife = inv.tomahawk = inv.stim = 0
+part_021: if (n.owner === Game.player) { if (!n.netId) n.netId = 'g' + (++netGrenadeId); netGrenadeEvents.push({ id: n.netId + ':det', kind: n.kind, x
+part_021: /* ---------------------------------------------------------------- bots: same grenades, same physics, same counts as the player
+part_022: var EQN={flash:'Flashbang',stim:'Stim Shot',frag:'Frag Grenade',knife:'Throwing Knife',tomahawk:'Tomahawk'};
+part_022: sw('grenade arm',function(){if(typeof Equipment!=='undefined'&&Equipment.refreshArm)Equipment.refreshArm();});
+(total 21 lines; most hits in: part_020=6, part_014=4, part_012=3, part_016=2, part_021=2, part_022=2, part_015=1, part_019=1)
+
+## stim
+part_003: function estimateBytesUsed( geometry ) {
+part_003: // Return the estimated memory used by this geometry in bytes
+part_007: reload: { tac: 2.4, empty: 3.0, rld: RLD.rifle }, draw: 0.5, adsTime: 0.28, zoom: 1.35, moveMul: 0.95, adsMoveMul: 0.62,
+part_007: reload: { tac: 2.1, empty: 2.7, rld: RLD.rifle, rldS: RLD.m4Sleight }, draw: 0.45, adsTime: 0.24, zoom: 1.4, moveMul: 1.0, adsMoveMul: 0.66,
+part_007: reload: { tac: 1.9, empty: 2.4, rld: RLD.rifle }, draw: 0.38, adsTime: 0.18, zoom: 1.3, moveMul: 1.08, adsMoveMul: 0.78,
+part_007: reload: { tac: 3.2, empty: 3.2, rld: RLD.shotgun }, draw: 0.5, adsTime: 0.26, zoom: 1.2, moveMul: 1.0, adsMoveMul: 0.7,
+part_007: reload: { tac: 5.2, empty: 5.8, rld: RLD.lmg }, draw: 0.8, adsTime: 0.42, zoom: 1.3, moveMul: 0.84, adsMoveMul: 0.5,
+part_007: reload: { tac: 3.0, empty: 3.0, rld: RLD.sniper }, draw: 0.7, adsTime: 0.45, zoom: 3.6, moveMul: 0.9, adsMoveMul: 0.55,
+part_007: reload: { tac: 1.9, empty: 2.5, rld: RLD.pistol }, draw: 0.35, adsTime: 0.17, zoom: 1.2, moveMul: 1.02, adsMoveMul: 0.85,
+part_007: reload: { tac: 1.6, empty: 2.1, rld: RLD.pistol }, draw: 0.3, adsTime: 0.14, zoom: 1.2, moveMul: 1.05, adsMoveMul: 0.9,
+part_007: reload: { tac: 0, empty: 0, rld: RLD.pistol }, draw: 0.28, adsTime: 0.2, zoom: 1.0, moveMul: 1.12, adsMoveMul: 1.12,
+part_007: c.adsTime = B.adsTime / up(m, 'adst'); c.draw = B.draw / (1 + x.draw / 100); c.sprintOutMul = 1 / up(m, 'spf');
+part_007: add('adst', cfg.adsTime * 1000, Math.round(cfg.adsTime * 1000) + '', 120 - 200 * cfg.adsTime);
+part_011: /* quick-ADS guns lean hard, heavy slow-ADS guns (M60, AX50) barely lean: adsTime 0.14 s -> 1.0, 0.45 s -> 0.2 */
+part_011: const wcfg = s.curId && typeof Weapons !== 'undefined' && Weapons.CFG ? Weapons.CFG[s.curId] : null, adsK = wcfg && wcfg.adsTime ? 0.2 + 0.8
+part_014: const hs0 = Math.hypot(B.vx, B.vz), wm = (cfg ? lerp(cfg.moveMul, cfg.adsMoveMul, P.ads) : 1) * (P.spdMul || 1) * (P.stimMul || 1);
+part_014: if (cfg) { const rate = 1 / Math.max(0.08, cfg.adsTime); P.ads = clamp(P.ads + clamp(adsT - P.ads, -rate * dt * 1.6, rate * dt), 0, 1); } el
+part_016: const sm = b.stimMul || 1; let tx = wx * speed * sm + sx * 2.2, tz = wz * speed * sm + sz * 2.2;
+part_019: out.push('PERKS  ' + c.perks.map((p) => p.toUpperCase()).join('  ·  ')); out.push('LETHAL  ' + (c.eq.l === 'knife' ? 'THROWING KNIFE' : c.eq
+part_019: return { primary: pri, secondary: sec, perks: GF_PERKS.map(gfPick), att, eq: { t: Math.random() < 0.5 ? 'flash' : 'stim', l: (['frag', 'knif
+part_020: stim: { count: 2, dur: 8, heal: 60, rate: 30, mul: 1.3 }   /* stim shot: heal = hp restored (at rate hp/s), dur = seconds of speed boost, mu
+part_020: const KGRAV = 4.5, TIM = { frag: [0.78, 0.37], flash: [0.78, 0.37], knife: [0.62, 0.30], tomahawk: [0.80, 0.48], stim: [1.2, 0.66] };   /* [
+part_020: const NM = { frag: 'FRAG', flash: 'FLASH', knife: 'KNIFE', tomahawk: 'TOMAHAWK', stim: 'STIM' };
+part_020: const inv = { frag: 0, flash: 0, knife: 0, tomahawk: 0, stim: 0 };
+part_020: const stim = { t: 0, heal: 0, age: 0 };
+(total 71 lines; most hits in: part_020=33, part_021=13, part_007=11, part_022=5, part_003=2, part_011=2, part_014=2, part_019=2)
+
+## tomahawk
+part_014: /* ---- throwable chase cam: when a kill was made with a thrown frag / throwing knife / tomahawk, the replay camera leaves the thrower after
+part_014: const CHASE_KIND = { frag: 'frag', tknife: 'knife', ttomahawk: 'tomahawk' }, _cA = new THREE.Vector3(), _cB = new THREE.Vector3(), _cP = new
+part_014: const sc = kind === 'frag' ? Math.abs((e.tRem >= 0 ? e.tRem : tK + 5) - tK) : tK - e.tAdd;   /* frag: the one that blew up at the kill; knif
+part_014: const bfC = A.ch ? chaseApply(A.ch, pt, C, A.cst, dt * sc) : 0;   /* the final kill was a throwable: leave the player, follow the grenade / 
+part_019: const wid = ws && ws.cfg ? ws.cfg.id : '', thrown = wid === 'tknife' || wid === 'ttomahawk', melee = kt.knife;
+part_019: out.push('PERKS  ' + c.perks.map((p) => p.toUpperCase()).join('  ·  ')); out.push('LETHAL  ' + (c.eq.l === 'knife' ? 'THROWING KNIFE' : c.eq
+part_019: return { primary: pri, secondary: sec, perks: GF_PERKS.map(gfPick), att, eq: { t: Math.random() < 0.5 ? 'flash' : 'stim', l: (['frag', 'knif
+part_020: tomahawk: { count: 2, speed: 25, dmg: 150, stickTime: 16, grav: 12, bounces: 3, keep: 0.6, spin: 10, loft: 0.08 },   /* tomahawk: heavier + 
+part_020: const KGRAV = 4.5, TIM = { frag: [0.78, 0.37], flash: [0.78, 0.37], knife: [0.62, 0.30], tomahawk: [0.80, 0.48], stim: [1.2, 0.66] };   /* [
+part_020: const NM = { frag: 'FRAG', flash: 'FLASH', knife: 'KNIFE', tomahawk: 'TOMAHAWK', stim: 'STIM' };
+part_020: const FAKE_TK = { cfg: { id: 'ttomahawk', name: 'TOMAHAWK', kind: 'pistol' } };
+part_020: const inv = { frag: 0, flash: 0, knife: 0, tomahawk: 0, stim: 0 };
+part_020: function readSel() { if (FORCE_EQ) return { t: FORCE_EQ.t, l: FORCE_EQ.l }; let a = null; try { a = JSON.parse(localStorage.getItem('omniEQ'
+part_020: } else if (kind === 'tomahawk') {   /* origin = the grip point; handle runs along +Y, head at the +Y end, blade edge faces +Z */
+part_020: heldMesh = { frag: mkMesh('frag'), flash: mkMesh('flash'), knife: mkMesh('knife'), tomahawk: mkMesh('tomahawk'), stim: mkMesh('stim') }; for
+part_020: for (const k of ['frag', 'flash', 'knife', 'tomahawk']) { const m = mkMesh(k); m.position.set(0, -300, 0); Game.scene.add(m); warmMeshes.pus
+part_020: netGrenadeEvents.length = 0; clearWorld(); thr = null; fl.t = 0; hudKey = ''; inv.frag = inv.flash = inv.knife = inv.tomahawk = inv.stim = 0
+part_020: thr = { kind, t: 0, rel: false }; snd(kind === 'frag' ? 'gren_pin_frag' : 'gren_pin_flash', { isPlayer: true, gain: kind === 'knife' || kind
+part_020: if (thr.kind === 'knife' || thr.kind === 'tomahawk') { launchKnife(P, thr.kind); inv[thr.kind]--; thr.rel = true; if (heldMesh) heldMesh[thr
+part_020: if (kind === 'tomahawk') {   /* LEFT hand grips the HANDLE, head up. Ready -> heavy wind-up (head tips back) -> overhand chop forward -> rel
+part_020: const hm = heldMesh.tomahawk;   /* mesh +Y (handle, head up) = hand +X; mesh +Z (blade edge) = fingers direction (-Y); mesh X = -hand Z */
+part_020: knives.push({ g, x, y, z, vx, vy, vz, owner, kind, cfg: CFG[kind], fake: kind === 'tomahawk' ? FAKE_TK : FAKE_KN, bounces: 0, age: 0, spin: 
+part_020: if (kind === 'tomahawk') snd('gren_throw', owner && owner.isPlayer ? { isPlayer: true, gain: 0.9 } : { pos: { x, y, z }, gain: 0.95 });
+part_020: if (c.loft) { dy += c.loft; const l = Math.hypot(dx, dy, dz) || 1; dx /= l; dy /= l; dz /= l; }   /* the tomahawk is lobbed: it leaves a lit
+part_020: /* a stuck tomahawk bites in with the BLADE EDGE (mesh +Z) along the flight direction and the handle sticking out sideways (up when it can) 
+(total 49 lines; most hits in: part_020=28, part_021=9, part_022=5, part_014=4, part_019=3)
+
+## knife
+part_007: knife: {
+part_007: id: 'knife', name: 'COMBAT KNIFE', short: 'KNIFE', cls: 'MELEE', slot: 'melee', kind: 'melee', mode: 'MELEE', auto: false, rpm: 120, mag: 1,
+part_007: const IDS = ['ak', 'm4', 'mp5', 'shotgun', 'm60', 'awp', 'deagle', 'm1911', 'knife'];
+part_007: awp: { velocity: 930 }, deagle: { velocity: 470 }, m1911: { velocity: 290 }, knife: { velocity: 0 }
+part_008: const IDS = ['ak', 'm4', 'mp5', 'deagle', 'm1911', 'shotgun', 'm60', 'awp', 'knife'];
+part_009: /* ================= COMBAT KNIFE =================
+part_009: Everything that shows the knife (ViewModel POSE.knife, SoldierModel makeHold, the loadout preview) tilts it forward so the blade points down
+part_009: function buildKnife(c) {
+part_009: const BUILD = { ak: buildAK, m4: buildM4, mp5: buildMP5, deagle: buildDeagle, m1911: buildM1911, shotgun: buildShotgun, m60: buildM60, awp: 
+part_009: const CLASS = { ak: 'rifle', m4: 'rifle', mp5: 'rifle', deagle: 'pistol', m1911: 'pistol', shotgun: 'shotgun', m60: 'lmg', awp: 'sniper', kn
+part_009: } else if (cls === 'knife') { // no magazine / bolt: nothing to animate beyond the swing (handled by the viewmodel / soldier)
+part_010: if (cls === 'pistol' || cls === 'knife') H.aimP.z = eye.z - 0.5 - ads.z; else if (cls === 'sniper') H.aimP.z = -butt - 0.0; else H.aimP.z = 
+part_010: if (cls === 'pistol' || cls === 'knife') {
+part_010: if (cls === 'knife') {   /* knife: handle vertical in the model, so tilt it forward in every stance (blade points down-range) */
+part_011: knife:   { punch: 0.5, lift: 0.1,  head: 1.0,  spin: 0.5 },
+part_011: knife: { hip: [0.152, -0.161, -0.671], hipQ: qe(-0.17, -0.164, 0.502), spr: [0.19, -0.255, -0.546], sprQ: qe(0.578, -0.413, 1.617), sld: [0.
+part_011: knife: {   /* vertical handle gripped like a pistol grip (the whole knife is tilted forward by POSE.knife); the left hand is free (see updat
+part_012: /* ---------------- knife swing (visual only): weapon-local offsets [x, y, z, rx, ry, rz] over the swing; kind 0 = forehand (right to left),
+part_012: function knifeSwing(u, kind) {
+part_012: /* ---------------- knife inspect (F): hand-held keys (spline) + detached toss / flip flights + left-hand check; camera targets and beats ar
+part_012: const _qKo = qe(-0.95, 0.2, 0.06), _qKoI = _qKo.clone().invert(), _qSw = new Qt();   /* the knife swing was authored for the old grip: keep 
+part_012: /* knife connects: freeze the blade in the target for a beat and slam the arm back (hit-stop) */
+part_012: if (st.swDur > 0) { if (st.swHold > 0) st.swHold -= dt; else st.swT += dt; const u = st.swT / st.swDur; if (u >= 1) st.swDur = 0; else { kni
+part_012: if (curId === 'knife') {   /* ---- F: knife inspect: present -> check the blade -> three tosses / flips -> left hand wipes the flat -> flour
+part_012: for (const f of INS_FL) if (u >= f[0] && u < f[1] && w > 0.5) {   /* the knife leaves the hand: it spins and arcs, and is caught at the end 
+(total 143 lines; most hits in: part_020=38, part_019=23, part_014=22, part_012=14, part_021=13, part_022=9, part_009=6, part_007=4)
+
+## killcam
+part_013: killcam: true, sprintMode: 'hold', sprintAutoCancel: true, crouchMode: 'hold', slideOnCrouch: true, proneMode: 'hold', diveMode: 'smart', au
+part_013: /* Killcam replay: records bot poses / the player's state / shot FX + sounds at 30 Hz, then replays the last seconds from the killer's eyes.
+part_013: /* killcam: the killer's camera feel (bob, landing dip, strafe / slide / dive roll, recoil kick, FOV widening) and body, so it reads as a pl
+part_014: /* multiplayer: every state message of every other player is kept (pose + the first-person gun state) so a killcam can replay exactly what t
+part_014: else if (e.k === 'psnd') orig.play.call(Sound, e.a[0], Object.assign({}, e.a[1], { isPlayer: false, pos: e.p }));   /* killcam: the victim's
+part_014: /* first-person weapon rig of the player (same layout as the killer block in the killcam) */
+part_015: E.kc = $('div', 'kcam', root); E.kc.innerHTML = '<div class="kb1"></div><div class="kb2"></div><div class="kl"><span class="kt">KILLCAM &mid
+part_015: head(pg, 'GAMEPLAY'); sg(pg, 'killcam', 'KILLCAM', OO, 'After a 1 second death screen, watch a replay of your death from your killer\'s view
+part_015: E.dthc = E.dth.querySelector('.c'); E.kcOn = !!d.killcam; menus.updateDeath(d.respawnIn); E.dth.classList.add('on'); hud.setVignette(0.5);
+part_015: updateDeath(s) { if (E.dthc) E.dthc.textContent = E.kcOn ? 'KILLCAM' : (s > 1e8 ? 'WAITING FOR THE ROUND TO END' : s > 0 ? 'RESPAWN IN ' + M
+part_015: showKillcam(d) { d = d || {}; E.kcn.innerHTML = '<span class="t' + (d.killerTeam | 0) + '">' + esc(d.killer || '') + '</span>'; E.kcw.textCo
+part_015: killcamProgress(p) { E.kcp.style.width = (p * 100).toFixed(1) + '%'; },
+part_015: hideKillcam() { E.kc.classList.remove('on'); },
+part_019: /* killcam: after the 1s death screen, replay the last seconds from the killer's eyes (SPACE skips) */
+part_019: function startKillcam() {
+part_019: UI.menus.hideDeath(); UI.menus.showKillcam(M.kcInfo); UI.hud.setVignette(0.2); UI.hud.show(false); UI.hud.scopeOnly(true); return true;
+part_019: function killcamCam(dt) {
+part_019: cam.position.set(C.x, C.y, C.z); cam.rotation.set(C.pitch, C.yaw, C.roll || 0, 'YXZ'); UI.menus.killcamProgress(Replay.progress);
+part_019: function endKillcam(done) {
+part_019: M.kc = null; if (done) M.kcDone = true; Replay.end(); UI.menus.hideKillcam(); UI.hud.scopeOnly(false); UI.hud.setScope(0); UI.hud.show(true)
+part_019: if (ent.isPlayer) { UI.menus.hideDeath(); UI.menus.hideKillcam(); Player.spawn(sp); snd('spawn', {}); } else Bots.spawn(ent, sp);
+part_019: M.bp = { t: 0 }; UI.menus.hideDeath(); UI.menus.hideKillcam(); UI.menus.showBestPlay(BP.meta); UI.hud.show(false); UI.hud.scopeOnly(true); U
+part_019: if (M.kc) endKillcam(true); M.kc = null; M.kcKiller = null; M.kcDone = true; M.respawnT = 0; UI.menus.hideDeath(); UI.menus.hideKillcam();
+part_019: UI.menus.showDeath({ killer: attacker ? attacker.name : 'UNKNOWN', killerTeam: attacker ? attacker.team : 1, weapon: ws ? ws.cfg.name : '', 
+part_019: if (M.kc) endKillcam(true); if (M.bp) endBestPlay(); M.bp = null; M.bpDone = false; M.kc = null; M.kcKiller = null; Replay.reset(); UI.menus
+(total 32 lines; most hits in: part_019=18, part_015=7, part_013=3, part_014=3, part_022=1)
+
+## replay
+part_013: /* ===== 62_replay.js ===== */
+part_013: /* Killcam replay: records bot poses / the player's state / shot FX + sounds at 30 Hz, then replays the last seconds from the killer's eyes.
+part_013: const Replay = (function () {
+part_013: /* attachment registry: replays store an index per frame (0 = none) so the first-person gun, the ghost and the third-person soldiers show th
+part_013: if (!playing && Game.live && o && !(typeof name === 'string' && name.indexOf('shell_') === 0)) {   /* shell sounds come from the replayed ca
+part_014: /* multiplayer: every state message of every other player is kept (pose + the first-person gun state) so a killcam can replay exactly what t
+part_014: /* ---- multiplayer replays: the killer's own view rebuilt from his state messages (camera, gun + attachments, ADS / sprint / reload / fire,
+part_014: function netPeers(t, dt) {   /* every other player as he was (the live ones are hidden while the replay renders) */
+part_014: /* ---- tracked world objects (thrown grenades, blasts, the RC-XD car ...): every sample is kept so the replay can put them back where they 
+part_014: if (!o.parent || o.parent !== Game.scene) Game.scene.add(o);   /* samples are world poses: a knife riding a corpse bone is shown in the scen
+part_014: /* ---- throwable chase cam: when a kill was made with a thrown frag / throwing knife / tomahawk, the replay camera leaves the thrower after
+part_014: /* swap the replay poses into the live soldiers for one render, then put the live ones back */
+part_014: const SLOW = 0.2, MAIN_POST = 0.3, ANG_PRE = 0.9, ANG_POST = 0.65, ANG_SLOW = 0.28, NANG = 3;   /* slow-mo speed; own-view tail after the ki
+part_014: try { const lg = Player.legs; if (lg && lg.root) lg.root.visible = false; } catch (er) { }   /* the live legs model is not where the replay 
+part_014: /* end of a segment: cut back in time and replay the kill from the next angle (or finish) */
+part_014: } else {   /* cinematic angles around the victim - each one replays the victim getting killed */
+part_014: Replay.install();
+part_015: #omni-root .hud.so{opacity:1}#omni-root .hud.so>*:not(.scp){visibility:hidden!important}   /* replays: the rest of the HUD is hidden, only t
+part_015: E.kc = $('div', 'kcam', root); E.kc.innerHTML = '<div class="kb1"></div><div class="kb2"></div><div class="kl"><span class="kt">KILLCAM &mid
+part_015: head(pg, 'GAMEPLAY'); sg(pg, 'killcam', 'KILLCAM', OO, 'After a 1 second death screen, watch a replay of your death from your killer\'s view
+part_019: /* killcam: after the 1s death screen, replay the last seconds from the killer's eyes (SPACE skips) */
+part_019: if (k && k.isNetPlayer ? !Replay.beginNet(M.kcInfo) : !Replay.begin(idx, Object.assign({}, M.kcInfo, { wid: M.kcInfo.wid }))) { M.kcDone = t
+part_019: M.kc = { killer: k, t: 0, dur: Replay.length };
+part_019: Replay.update(dt); const C = Replay.cam, cam = G.camera; if (!C) return;
+part_019: cam.position.set(C.x, C.y, C.z); cam.rotation.set(C.pitch, C.yaw, C.roll || 0, 'YXZ'); UI.menus.killcamProgress(Replay.progress);
+(total 54 lines; most hits in: part_019=21, part_014=12, part_021=7, part_013=5, part_020=5, part_015=3, part_022=1)
+
+## best ?play
+part_013: /* ---- best play, first person: the player's own body (legs / hips / torso, head + arms invisible shadow casters) driven by the recording, 
+part_013: function fpBody(f, a, b, dt, C) {   /* best play: your own body */
+part_014: /* ================= BEST PLAY (match-end highlight) =================
+part_014: snapshot() copies the recording when a new best play is set; beginBest() plays it back from the player's own camera and
+part_014: else if (e.k === 'psnd') { if (A.shot > 0 && e.p) orig.play.call(Sound, e.a[0], Object.assign({}, e.a[1], { isPlayer: false, pos: e.p })); e
+part_015: E.bp = $('div', 'bpcam', root); E.bp.innerHTML = '<div class="kb1"></div><div class="kb2"></div><div class="bt"><span class="bh">BEST PLAY</
+part_015: showBestPlay(m) {
+part_015: bestPlayProgress(p, fade, slow, label) { E.bpp.style.width = (p * 100).toFixed(1) + '%'; E.bpf.style.opacity = fade; E.bp.classList.toggle('
+part_015: hideBestPlay() { E.bp.classList.remove('on', 'slow'); E.bpf.style.opacity = 0; if (E.bpr) E.bpr.classList.remove('on'); },
+part_019: /* best play: the highest-scoring 10 second stretch of the match (sum of kill points earned within any 10 s) */
+part_019: function startBestPlay() {
+part_019: M.bp = { t: 0 }; UI.menus.hideDeath(); UI.menus.hideKillcam(); UI.menus.showBestPlay(BP.meta); UI.hud.show(false); UI.hud.scopeOnly(true); U
+part_019: function bestPlayCam(dt) {
+part_019: UI.menus.bestPlayProgress(Replay.progress, Replay.fade, Replay.scale < 0.6, Replay.label); UI.hud.setScope(Replay.scopeAmt);
+part_019: function endBestPlay() {
+part_019: if (!M.bp) return; M.bp = null; Replay.end(); UI.menus.hideBestPlay(); UI.hud.scopeOnly(false); UI.hud.setScope(0); UI.hud.show(true);
+part_019: if (M.kc) endKillcam(true); if (M.bp) endBestPlay(); M.bp = null; M.bpDone = false; M.kc = null; M.kcKiller = null; Replay.reset(); UI.menus
+part_019: M.score.length = 2; M.score[0] = M.score[1] = 0; M.timeLeft = M.duration; M.over = false; M.shown = false; M.streak = 0; M.multi = 0; M.resp
+part_019: if (M.kc) endKillcam(true); if (M.bp) endBestPlay(); M.bp = null; M.bpDone = false; M.kc = null; M.kcKiller = null; Replay.reset(); UI.menus
+part_019: if (M.bp) { bestPlayCam(dt); if (Replay.done || (M.bp.t > 0.6 && I.skipPressed)) { endBestPlay(); showEnd(); } }
+part_019: else { M.endT -= dt; if (M.endT <= 0) { if (!M.bpDone && startBestPlay()) bestPlayCam(0); else showEnd(); } }
+part_022: function resetBestPlay(){netPointEvents=[];netBest=null;roomElapsed=0;}
+part_023: function bestPlay(){return netBest;}
+(total 23 lines; most hits in: part_019=12, part_015=4, part_014=3, part_013=2, part_022=1, part_023=1)
+
+## third.?person
+part_009: AttachModels.apply(model, weaponId, attachmentIds) mounts the build on any WeaponModels instance (first-person viewmodel, third-person,
+part_009: 52_weapon_anim.js — shared weapon choreography (used by the first-person viewmodel AND third-person soldiers).
+part_009: 55_soldier.js — articulated third-person operator with procedural animation.
+part_009: const _akP = new V3(), _akQ = new Qt(), _akLp = new V3(), _akLq = new Qt(), _akPalm = new V3();   /* Akimbo (third person): base pose of the
+part_010: const wantAk = !!(att && att.indexOf('pk_akimbo') >= 0 && WeaponAnim.CLASS[id] === 'pistol');   /* third-person weapons carry their attachme
+part_011: Weapon choreography comes from WeaponAnim (shared with third-person soldiers); arms use the soldier's 2-bone IK.
+part_013: killcam: true, sprintMode: 'hold', sprintAutoCancel: true, crouchMode: 'hold', slideOnCrouch: true, proneMode: 'hold', diveMode: 'smart', au
+part_013: /* attachment registry: replays store an index per frame (0 = none) so the first-person gun, the ghost and the third-person soldiers show th
+part_013: { /* the real third-person body pose of the player (same data the live model is fed): heading, dive / slide direction, roll, sprint-hold, cr
+part_014: function loco(a, b, f) {   /* exactly what the live third-person model gets: body-relative move angle, dive / slide travel direction, roll, 
+part_014: /* third person: shoot from the eye at whatever the (offset) camera's crosshair is pointing at, and show the shot from the soldier's own muz
+part_014: /* third-person cheat: the whole soldier is shown (real materials, head and arms included), holding the active weapon, standing exactly wher
+part_014: const tp = !!Game.settings.thirdPerson;
+part_015: P.tpOn = !!Game.settings.thirdPerson && P.alive;
+part_015: head(pg, 'CAMERA (CHEAT)'); sg(pg, 'thirdPerson', 'THIRD PERSON', OO, 'Chase camera behind your soldier so you can watch the full-body anima
+part_021: /* ---------------------------------------------------------------- third person: the player's soldier body wears the suit and holds the gun
+part_021: /* per frame: first person = visor overlay + viewmodel gun; third person = armor + gun on the body */
+part_022: head(pg,'CAMERA (CHEAT)');sg(pg,'thirdPerson','THIRD PERSON',OO,'Chase camera behind your soldier so you can watch the full-body animations 
+(total 18 lines; most hits in: part_009=4, part_014=4, part_013=3, part_015=2, part_021=2, part_010=1, part_011=1, part_022=1)
+
+## throw
+part_003: throw new Error( 'BufferGeometryUtils: Initialized MikkTSpace library required.' );
+part_003: throw new Error( 'BufferGeometryUtils: Tangents require "position", "normal", and "uv" attributes.' );
+part_007: def('opt_sg4', 'optic', 'Slugline 4x Scope', 'Slug-hunter scope with a full scope picture. Turns the pump into a mid-range slug thrower at t
+part_008: for (let i = 0; i < 15; i++) {   // drops thrown outward, mostly along one direction, elongated like real spatter
+part_011: /* ---- direction-specific reactions. front: the bullet travels backwards through the victim (lz > 0), back: it travels forwards (lz < 0), s
+part_011: () => { A.d = 0.6; T.top = [[0.4, 0.2], [1, 0.9]]; T.hy = [[0.5, -0.2], [1, -0.4]]; T.tw = [[1, sg * J(0.5)]]; B.spine = [[0.3, J(0.5), 0, s
+part_011: () => { A.d = 0.13; T.top = [[1, 0.6]]; T.hy = [[1, -0.05]]; B.head = [[0.5, J(0.6), R(-0.4, 0.4), R(-0.4, 0.4)]]; B.spine = [[0.5, J(0.4), 
+part_012: /* converge on the crosshair only while the gun is still; any movement (walk, sprint, slide, dive, vault, reload, weapon switch, throw) lets
+part_012: { const wb = 0.12 * Math.sin(sf * 8.2) * Math.sin(Math.PI * sf); _ifq.premultiply(_iq2.setFromAxisAngle(f[2] === 0 ? _iY : _iX, wb)); }   /*
+part_012: /* grenade throw: the left hand lets go of the gun and drops off-screen to where the throwing arm (Equipment) starts and ends; the right han
+part_012: { const lv = !hideW && st.thrW < 0.9; if (UA[0].visible !== lv) UA[0].visible = lv; }   /* the throwing arm draws the left hand while a gren
+part_012: gren_throw: () => { SD(311); const o = alloc(0.4); sweep(o, 0, 0.3, 0.6, 500, 1900, 1.2); nburst(o, 0, 0.25, 0.15, 0.1, 200, 1200); return f
+part_013: gren_throw_rec: ['__ASSET_59__']
+part_013: const SAMPLE_USE = { step_walk: SURFACES.map((s) => 'step_' + s + '_walk'), gren_bounce: ['gren_bounce'], gren_bounce_flash: ['gren_bounce_f
+part_013: else if (o.isPlayer && Game.player && Game.player.pos) { const pp = Game.player.pos; ev.push({ t: now(), k: 'psnd', a: [name, cp(o)], p: { x
+part_014: /* ---- tracked world objects (thrown grenades, blasts, the RC-XD car ...): every sample is kept so the replay can put them back where they 
+part_014: /* ---- throwable chase cam: when a kill was made with a thrown frag / throwing knife / tomahawk, the replay camera leaves the thrower after
+part_014: function findThrown(kwid, owner, tK) {
+part_014: const sc = kind === 'frag' ? Math.abs((e.tRem >= 0 ? e.tRem : tK + 5) - tK) : tK - e.tAdd;   /* frag: the one that blew up at the kill; knif
+part_014: /* blend the camera C from the thrower's view into the projectile chase; returns the blend amount (0 = still on the thrower) */
+part_014: if (A.ch === undefined) { const ko = bots[A.k]; A.ch = findThrown(A.info && A.info.kwid, ko, A.tD) || null; A.cst = {}; }
+part_014: if (A.k >= 0) bots[A.k].soldier.root.visible = !!A.chase;   /* first person: hide the killer; following his throwable: he is in the shot */
+part_014: if (A.ch === undefined) { A.ch = findThrown(A.kw, Game.player, tK) || null; A.cst = {}; }
+part_014: const bfC = A.ch ? chaseApply(A.ch, pt, C, A.cst, dt * sc) : 0;   /* the final kill was a throwable: leave the player, follow the grenade / 
+part_014: /* firing and throwing a grenade break a sprint - unless you run Gung-Ho (hipfire needs a one-handed gun; throwing works with any). Reloadin
+(total 102 lines; most hits in: part_020=32, part_014=17, part_021=13, part_019=12, part_012=5, part_018=5, part_011=3, part_013=3)
