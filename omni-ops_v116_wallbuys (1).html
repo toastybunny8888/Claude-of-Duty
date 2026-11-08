@@ -10747,6 +10747,8 @@ const Sound = (function () {
   'use strict';
   const SR = 32000, TAU = Math.PI * 2, clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
   let ctx = null, master = null, ready = false, initP = null, vol = 0.8, ambTimer = 0, ambOn = false;
+  /* zombies-mode footstep reverb: a shared convolution bus (revIn) fed by a per-step send. STEP_REVERB = send level (0 = off, ~0.3 subtle, ~0.7 cavernous) */
+  let revIn = null, STEP_REVERB = 0.5;
   const B = {}, RAW = {}, loops = {}, voices = [];
   const L = { px: 0, py: 0, pz: 0, fx: 0, fy: 0, fz: -1, rx: 1, ry: 0, rz: 0 };
   const CLS = { ak: 'rifle', m4: 'rifle', mp5: 'rifle', deagle: 'pistol', m1911: 'pistol', shotgun: 'shotgun', m60: 'lmg', awp: 'sniper', knife: 'pistol' };
@@ -11605,6 +11607,7 @@ const Sound = (function () {
       if (pan !== 0 && ctx.createStereoPanner) { const p = ctx.createStereoPanner(); p.pan.value = pan; node.connect(p); node = p; }
       if (o.isPlayer && o.bass) { const f = ctx.createBiquadFilter(); f.type = 'lowshelf'; f.frequency.value = 160; f.gain.value = 5; node.connect(f); node = f; }
       node.connect(master);
+      if (o.reverb > 0 && revIn) { const rs = ctx.createGain(); rs.gain.value = o.reverb; node.connect(rs); rs.connect(revIn); }   /* reverb send: taken after distance gain / pan, so far-off steps get a quieter tail */
       const v = { src, g, pr: prio, gn }; voices.push(v);
       src.onended = () => { const i = voices.indexOf(v); if (i >= 0) voices.splice(i, 1); };
       src.start();
@@ -11640,6 +11643,7 @@ const Sound = (function () {
     if (name === 'kill_head' && !buf) buf = B.kill;   /* no headshot-kill clip -> the normal kill sound */
     if ((name === 'kill' || name === 'kill_head' || name === 'hit_head') && Array.isArray(buf)) o = Object.assign({}, o, { gain: (o.gain === undefined ? 1 : o.gain) * 1.8, vary: false });   /* boosted: the master compressor catches the peaks; play them untouched in pitch */
     if (name === 'hit_marker' && Array.isArray(buf)) o = Object.assign({}, o, { gain: (o.gain === undefined ? 1 : o.gain) * 1.5 });   /* hit marker level trim */
+    if (STEP_REVERB > 0 && name.indexOf('step_') === 0 && o.reverb === undefined && document.body.classList.contains('zmOnly')) o = Object.assign({}, o, { reverb: STEP_REVERB });   /* zombies mode: footsteps echo */
     playBuf(buf, cat, o, pr);
   }
   /* ---- crawling: a rustle bed chained from the 1 s recorded clips. While `on`, call every frame: the next clip starts just before the last one ends
@@ -11681,6 +11685,21 @@ const Sound = (function () {
   function startAmbient() { if (!ready) return; loop('wind', true, { gain: 0.2 }); if (!ambOn) { ambOn = true; ambTimer = setTimeout(ambientTick, 2500); } }
   function stopAmbient() { loop('wind', false); ambOn = false; clearTimeout(ambTimer); }
 
+  /* reverb bus: stereo impulse response of decaying noise that gets darker as it fades (a big concrete room), ~1.7 s tail, 25 ms pre-delay.
+     Output goes into `master`, so the master volume slider scales the wet signal too. */
+  function buildReverb() {
+    const sr = ctx.sampleRate, len = Math.floor(sr * 1.7), pre = Math.floor(sr * 0.025), RT60 = 1.5, conv = ctx.createConvolver(), ir = ctx.createBuffer(2, len, sr);
+    for (let c = 0; c < 2; c++) {
+      const d = ir.getChannelData(c); let y = 0;
+      for (let i = pre; i < len; i++) {
+        const t = (i - pre) / sr, a = 0.65 - 0.57 * Math.min(1, t / RT60);   /* low-pass coefficient: bright early, dull late */
+        y += a * ((Math.random() * 2 - 1) - y); d[i] = y * Math.exp(-6.9 * t / RT60);
+      }
+    }
+    conv.buffer = ir; const out = ctx.createGain(); out.gain.value = 0.9;
+    conv.connect(out); out.connect(master); revIn = conv;
+  }
+
   function init() {
     if (initP) return initP;
     initP = (async () => {
@@ -11690,6 +11709,7 @@ const Sound = (function () {
         master = ctx.createGain(); master.gain.value = vol;
         const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -9; comp.knee.value = 10; comp.ratio.value = 5; comp.attack.value = 0.002; comp.release.value = 0.14;
         master.connect(comp); comp.connect(ctx.destination);
+        try { buildReverb(); } catch (e) { console.warn('reverb setup failed', e); }
         await buildAll(); try { await loadSamples(); } catch (e) { console.warn('sample load failed', e); } ready = true; return true;
       } catch (e) { console.warn('Sound init failed', e); return false; }
     })();
@@ -11706,6 +11726,7 @@ const Sound = (function () {
 
   return {
     init, resume, setMasterVolume, setListener, weapon, play, loop, crawl, startAmbient, stopAmbient, synthAll, SR,
+    setStepReverb(v) { STEP_REVERB = clamp(+v || 0, 0, 2); },   /* tune live from the console: Sound.setStepReverb(0.8) */
     get ready() { return ready; }, get ctx() { return ctx; }, _raw: RAW, _voices: voices,
     beep(f, d, g, f2) { try { if (!ready || !ctx || !master) return; const t = ctx.currentTime, o = ctx.createOscillator(), gn = ctx.createGain(); o.type = 'square'; o.frequency.setValueAtTime(f, t); if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + d); gn.gain.setValueAtTime(0.0001, t); gn.gain.exponentialRampToValueAtTime(g || 0.08, t + 0.01); gn.gain.exponentialRampToValueAtTime(0.0001, t + d); o.connect(gn); gn.connect(master); o.start(t); o.stop(t + d + 0.03); } catch (e) { } }
   };
