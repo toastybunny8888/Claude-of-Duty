@@ -1,0 +1,984 @@
+  function kcKick(cfg, ads) { if (A && A.cx) A.cx.kv += 8 * ((cfg && cfg.kickRot) || 0.03) * (1 - 0.5 * (ads || 0)); }
+  const _ssm = (u) => { u = Math.max(0, Math.min(1, u)); return u * u * (3 - 2 * u); };
+  function kcLayer(f, e0, e1, dt, C, wi) {
+    const cx = A.cx, kd = (r) => 1 - Math.exp(-r * dt), XE = (j) => buf[e0 + j], XLE = (j) => buf[e0 + j] + (buf[e1 + j] - buf[e0 + j]) * f.f;
+    const cfg = wi >= 0 ? Weapons.CFG[Weapons.IDS[wi]] : null, ads = XLE(7), spr = XE(8) > 0.5 ? 1 : 0, hs = XLE(9) * 8.5, gnd = XE(10) > 0.5, vy = XE(11), slide = XE(12) > 0.5, dive = XE(13) > 0.5;
+    /* landing dip */
+    if (gnd && !cx.pg && cx.pvy < -3) cx.land = -Math.min(0.22, -cx.pvy * 0.014); cx.pg = gnd; cx.pvy = vy;
+    const n = Math.max(1, Math.ceil(dt / 0.01)), h = dt / n;
+    for (let i = 0; i < n; i++) { cx.landV += (-120 * cx.land - 16 * cx.landV) * h; cx.land += cx.landV * h; cx.kv += (300 * (0 - cx.kp) - 18 * cx.kv) * h; cx.kp += cx.kv * h; }
+    /* head bob (same curves as the player's camera) */
+    const bobAmp = gnd && !slide && !dive ? Math.min(1, hs / 8.5) * (1 - 0.85 * ads) : 0; cx.bobT += dt * (6 + 4 * spr) * (gnd ? Math.min(1.5, hs / 6.5) : 0);
+    const bobY = Math.sin(cx.bobT * 2) * 0.022 * bobAmp, bobX = Math.sin(cx.bobT) * 0.012 * bobAmp;
+    C.x += bobX * Math.cos(C.yaw); C.z -= bobX * Math.sin(C.yaw); C.y += bobY + cx.land * 0.5; C.pitch += cx.kp;
+    /* roll: strafing, sliding, dolphin dives tilt the view */
+    cx.diveT = dive ? cx.diveT + dt : 0;
+    const rollT = -Math.sin(XE(28)) * 0.014 * Math.min(1, hs / 7.8) + (slide ? 0.05 : 0) + (dive ? -Math.max(-1, Math.min(1, XE(22))) * 0.42 * _ssm(cx.diveT / 0.12) : 0);
+    cx.roll += (rollT - cx.roll) * kd(9); C.roll = cx.roll;
+    /* FOV: sprint / dive / slide widen, ADS zooms by the weapon's own zoom */
+    cx.w += ((1 + spr * 0.05 + (dive ? 0.07 : 0) + (slide ? 0.04 : 0)) - cx.w) * kd(10); A.widen = cx.w; A.zoom = cfg && cfg.zoom ? cfg.zoom : 0;
+    /* sun shade on the viewmodel */
+    cx.shadeT -= dt; if (cx.shadeT <= 0) { cx.shadeT = 0.2; try { const sd = Game.map.sunDir; ViewModel.setShade(Game.world.raycast(C.x, C.y, C.z, sd.x, sd.y, sd.z, 60) ? 0 : 1); } catch (er) { } }
+    /* the killer's body (legs / hips / torso) in the killer's own uniform */
+    const k = A.k, o0 = (f.a * nb + k) * BF, o1 = (f.b * nb + k) * BF, q = (j) => buf[o0 + j], rp = (j) => buf[o0 + j] + (buf[o1 + j] - buf[o0 + j]) * f.f;
+    const qy = (o) => Math.atan2(2 * (buf[o + 6] * buf[o + 4] + buf[o + 3] * buf[o + 5]), 1 - 2 * (buf[o + 3] * buf[o + 3] + buf[o + 4] * buf[o + 4])),   /* body heading from the root quaternion (x,y,z,w = +3..+6; +7 is the visibility flag, not w) */
+      ya = qy(o0), yaw = ya + wrap(qy(o1) - ya) * f.f, bk = bots[k];
+    let kit = null; try { const st = bk.soldier._state().st; kit = { team: st.team !== undefined ? st.team : bk.team, variant: st.variant }; } catch (er) { }
+    const g = ensureFp(kit, 'bot' + k + ':' + (kit ? kit.team + '/' + kit.variant : ''));
+    const l = { speed: hs, moveAngle: XE(28), sprint: spr > 0, gh: XE(27) > 0.5, aim: ads, crouch: XLE(14), grounded: gnd, vy, pitch: 0, slide, dive, ddx: XE(22), ddz: XE(23), sdx: XE(24), sdz: XE(25), roll: XE(26) };
+    fpPose(g, l, yaw, rp(0), rp(1), rp(2), dive, slide, dt, C);
+  }
+  function ensureGhost(wid) {
+    if (!ghost) { let kit = null; try { kit = SoldierModel.playerKit(); } catch (er) { } ghost = SoldierModel.create({ team: kit && kit.team !== undefined ? kit.team : 0, variant: kit && kit.variant !== undefined ? kit.variant : 11 }); Game.scene.add(ghost.root); ghost.setVisible(false); ghost.setLOD(0); }
+    if (wid && !(ghostId && ghostId.split(':')[0] === wid)) { ghost.equip(wid); ghostId = wid + ':0'; }
+    return ghost;
+  }
+  /* multiplayer: every state message of every other player is kept (pose + the first-person gun state) so a killcam can replay exactly what the killer saw. t = their clock, lt = our Game.time at arrival (matches the local recording) */
+  function recordNet(p, id, clock, team) { if (!p || !p.alive || !isFinite(+p.x) || !isFinite(+p.z)) return; const track = netFrames[id] || (netFrames[id] = []), t = isFinite(+clock) ? +clock : (typeof Game !== 'undefined' ? Game.time : performance.now()/1000), q = { t, lt: typeof Game !== 'undefined' ? Game.time : t, x:+p.x, y:+p.y||0, z:+p.z, yaw:+p.yaw||0, pitch:+p.pitch||0, mode:p.mode||'ground', crouch:!!p.crouch, alive:!!p.alive, weapon:p.weapon||'ak', att: p.att && p.att.length ? p.att.slice() : null, ads: +p.ads || 0, sprint: !!p.sprinting, an: p.anim ? Object.assign({}, p.anim) : null, fp: p.fp ? Object.assign({}, p.fp) : null, ey: isFinite(+p.ey) ? +p.ey : 0, operator: p.operator || '', team: team >= 0 && team <= 3 ? +team : -1 }; track.push(q); while (track.length && (track.length > 540 || t - track[0].t > 16)) track.shift(); }
+  /* ---- multiplayer replays: the killer's own view rebuilt from his state messages (camera, gun + attachments, ADS / sprint / reload / fire, arms and body), the victim and the bots from our own
+     recording, the other players as ghost soldiers ---- */
+  const _netCfg = Object.create(null); let pgs = Object.create(null);
+  const newVm = () => ({ ctx: { ads: 0, sprint: 0, speed01: 0, grounded: true, vy: 0, slide: false, dive: false, crouch: 0, lookYaw: 0, lookPitch: 0, reload: null, cycle: null, drop: 0, empty: false, mag: 30, hide: false }, rel: { t: 0, dur: 1, empty: false }, cyc: { t01: 0, kind: 'bolt' }, wid: -1, ai: 0, key: '', shots: -1, yaw: null, pitch: 0 });
+  function netCfgFor(wid, att) { const k = wid + '|' + att.join(','); if (_netCfg[k] === undefined) { try { _netCfg[k] = Gunsmith.buildCfg(wid, Gunsmith.normalize(wid, att)); } catch (er) { _netCfg[k] = null; } } return _netCfg[k]; }
+  function pgClear() { for (const id in pgs) { try { Game.scene.remove(pgs[id].s.root); pgs[id].s.dispose(); } catch (er) { } } pgs = Object.create(null); }
+  function netOpen(info, track, ck, local) {
+    if (!track || track.length < 12) return false;
+    const tD = +info.tD || track[track.length - 1][ck], start = Math.max(track[0][ck], local ? tD - PRE : +info.start - 2), end = Math.min(track[track.length - 1][ck], local ? tD + POST : +info.end + 1.2);
+    const frames = track.filter((f) => f[ck] >= start && f[ck] <= end); if (frames.length < 10 || end - start < 1.2) return false;
+    const loc = !!(local && buf && count >= 4);
+    A = { mode: 'net', ck, frames, t0: start, t1: end, pt: start, info, tD, local: loc, ei: 0, died: false, rlOn: false, cam: { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, roll: 0, fov: 75 }, vm: newVm(), widen: 1, zoom: 0, kid: info.netPlayerId || info.id || 'host', pv: null };
+    pgClear();
+    if (loc) {
+      while (A.ei < ev.length && ev[A.ei].t < start) A.ei++;
+      const g = ensureGhost(info.wid); g.revive(); g.setVisible(true); const f = find(start), o = f.a * PF; for (let i = 0; i < 6; i++) g.update(0.05, loco(o, o)); poseGhost(f);
+    } else if (ghost) ghost.setVisible(false);
+    playing = true; ViewModel.setVisible(true); updateNet(0); return true;
+  }
+  function beginNet(info) { return netOpen(info, netFrames[info.netPlayerId || 'host'], 'lt', true); }
+  function beginNetBest(info) { return netOpen(info, netFrames[info.id], 't', false); }
+  function netWorld(t, dt) {   /* the local recording: the victim (me), the bots, shots / impacts / sounds */
+    const f = find(t), a = f.a * PF, b = f.b * PF;
+    if (!A.died) {
+      const hh = (f.f < 0.5 ? f.a : f.b) * PF, wi2 = pbuf[hh + 53] | 0, wid2 = wi2 >= 0 ? Weapons.IDS[wi2] : null, ai2 = pbuf[hh + 56] | 0, rd = pbuf[hh + 54];
+      if (wid2) { const gk = wid2 + ':' + ai2; if (gk !== ghostId) { ghost.equip(wid2, ai2 > 0 ? attReg[ai2].att : undefined); ghostId = gk; } }
+      if (rd > 0 && !A.rlOn) ghost.reload(rd, pbuf[hh + 55] > 0.5); A.rlOn = rd > 0;
+      ghost.update(dt, loco(a, b, f.f)); poseGhost(f);
+    } else ghost.update(dt, null);
+    if (!A.died && t >= A.tD) { A.died = true; const i = A.info; ghost.die(i.dx, i.dz, i.head, undefined, i.zone, i.ctx); const gp = ghost.root.position; FX.blood(gp.x, gp.y + 1.3, gp.z, i.dx, 0.1, i.dz, !!i.head); }
+    while (A.ei < ev.length && ev[A.ei].t <= t) {
+      const e = ev[A.ei++]; try {
+        if (e.k === 'fx') orig['fx_' + e.n].apply(FX, e.a);
+        else if (e.k === 'snd') orig.play.apply(Sound, e.a);
+        else if (e.k === 'psnd') orig.play.call(Sound, e.a[0], Object.assign({}, e.a[1], { isPlayer: false, pos: e.p }));
+        else if (e.k === 'wpn') { const o = e.a[2]; if (o.isPlayer) { if (e.a[1] !== 'fire' || !o.pos) continue; ghost.shoot(); const gp = ghost.root.position, yw = ghost.root.rotation.y; o.isPlayer = false; orig.fx_flash.call(FX, gp.x - Math.sin(yw) * 0.6, gp.y + 1.35, gp.z - Math.cos(yw) * 0.6, -Math.sin(yw), 0, -Math.cos(yw), 0.4); } orig.weapon.apply(Sound, [e.a[0], e.a[1], o]); }
+      } catch (er) { }
+    }
+  }
+  function netVm(a, b, f, dt, C) {   /* the killer's first-person gun and arms: his weapon + attachments, ADS, sprint, reload, cycling, firing, movement */
+    const V = A.vm, c = V.ctx, nr = f < 0.5 ? a : b, an = nr.an || {}, fp = nr.fp, wid = nr.weapon, wi = Weapons.IDS.indexOf(wid); if (wi < 0) return;
+    const cfg = Weapons.CFG[wid], key = wid + '|' + (nr.att ? nr.att.join(',') : '');
+    if (key !== V.key) { V.key = key; V.shots = fp ? fp.sh : -1; const nc = nr.att && nr.att.length ? netCfgFor(wid, nr.att) : null; ViewModel.setWeapon(wid, nc ? { cfg: nc } : undefined); }
+    const kd = (r) => 1 - Math.exp(-r * dt);
+    c.ads += ((a.ads + (b.ads - a.ads) * f) - c.ads) * kd(18); c.sprint += ((nr.sprint ? 1 : 0) - c.sprint) * kd(10); c.speed01 = Math.min(1.2, (an.speed || 0) / 8.5); c.grounded = an.grounded !== false; c.vy = an.vy || 0;
+    c.slide = !!an.slide; c.dive = !!an.dive; c.crouch = typeof an.crouch === 'number' ? an.crouch : (nr.crouch ? 1 : 0);
+    c.lookYaw = V.yaw === null ? 0 : wrap(C.yaw - V.yaw); c.lookPitch = C.pitch - V.pitch; V.yaw = C.yaw; V.pitch = C.pitch;
+    if (fp && fp.rl >= 0) { V.rel.t = fp.rl; V.rel.dur = fp.rd || 1; V.rel.empty = fp.re > 0.5; c.reload = V.rel; } else c.reload = null;
+    if (fp && fp.cy >= 0) { V.cyc.t01 = fp.cy; V.cyc.kind = fp.cp ? 'pump' : 'bolt'; c.cycle = V.cyc; } else c.cycle = null;
+    c.mag = fp ? fp.mg : 30; c.empty = c.mag === 0 && !c.reload; c.drop = 0; c.thr = 0; c.gh = an.gh ? 1 : 0; c.hide = !!(cfg && cfg.scope && c.ads > 0.82);
+    if (fp) { const sh = fp.sh; if (sh !== V.shots) { if (V.shots >= 0 && sh > V.shots) { ViewModel.fire(cfg); kcKickNet(cfg, c.ads); } V.shots = sh; } }
+    ViewModel.update(dt, c); A.scope = !!(cfg && cfg.scope); A.ads = c.ads; A.zoom = cfg && cfg.zoom ? cfg.zoom : 0;
+  }
+  function kcKickNet() { }
+  function netBody(a, b, f, dt, C) {   /* the killer's own legs / torso in his uniform, like a player's first-person view */
+    const nr = f < 0.5 ? a : b, an = nr.an; if (!an) return;
+    if (!A.kit) { const op = SoldierModel.operators && SoldierModel.operators.find((o) => o.id === nr.operator), tm2 = nr.team >= 0 ? nr.team : (A.info && A.info.killerTeam !== undefined ? A.info.killerTeam : 1); A.kit = { team: tm2, variant: op ? op.variant : (tm2 ? 7 : 4) }; }
+    const g = ensureFp(A.kit, 'net:' + A.kid + ':' + A.kit.team + '/' + A.kit.variant), yaw = an.bodyYaw !== undefined ? an.bodyYaw : C.yaw;
+    const l = { speed: an.speed || 0, moveAngle: an.moveAngle || 0, sprint: !!an.sprint, gh: !!an.gh, aim: nr.ads || 0, crouch: typeof an.crouch === 'number' ? an.crouch : (nr.crouch ? 1 : 0), grounded: an.grounded !== false, vy: an.vy || 0, pitch: 0, slide: !!an.slide, dive: !!an.dive, ddx: an.ddx || 0, ddz: an.ddz !== undefined ? an.ddz : -1, sdx: an.sdx || 0, sdz: an.sdz !== undefined ? an.sdz : -1, roll: an.roll || 0 };
+    fpPose(g, l, yaw, a.x + (b.x - a.x) * f, a.y + (b.y - a.y) * f, a.z + (b.z - a.z) * f, !!an.dive, !!an.slide, dt, C);
+  }
+  function netPeers(t, dt) {   /* every other player as he was (the live ones are hidden while the replay renders) */
+    const ck = A.ck, seen = Object.create(null);
+    for (const id in netFrames) {
+      if (id === A.kid) continue; const tr = netFrames[id]; if (!tr || tr.length < 2) continue;
+      let i = tr.length - 1; while (i > 0 && tr[i][ck] > t) i--; const a = tr[i], b = tr[Math.min(tr.length - 1, i + 1)];
+      if (Math.abs(a[ck] - t) > 1.0) continue;   /* not around at that time (dead / not yet joined) */
+      const span = b[ck] - a[ck], f = span > 1e-6 ? Math.max(0, Math.min(1, (t - a[ck]) / span)) : 0, nr = f < 0.5 ? a : b, an = nr.an;
+      let G = pgs[id]; if (!G) { const op = SoldierModel.operators && SoldierModel.operators.find((o) => o.id === nr.operator), tm2 = nr.team >= 0 ? nr.team : 1; const so = SoldierModel.create({ team: tm2, variant: op ? op.variant : (tm2 ? 7 : 4) }); Game.scene.add(so.root); try { so.setLOD(0); } catch (er) { } so.root.traverse((m) => { if (m.name === 'marker') m.visible = false; }); G = pgs[id] = { s: so, key: '' }; }
+      const wk = nr.weapon + '|' + (nr.att ? nr.att.join(',') : ''); if (G.key !== wk) { G.key = wk; try { G.s.equip(nr.weapon, nr.att || undefined); } catch (er) { } }
+      G.s.setVisible(true); G.s.root.position.set(a.x + (b.x - a.x) * f, a.y + (b.y - a.y) * f, a.z + (b.z - a.z) * f); G.s.root.rotation.y = an && an.bodyYaw !== undefined ? an.bodyYaw : nr.yaw;
+      G.s.update(dt, an ? Object.assign({}, an, { pitch: nr.pitch }) : { speed: 0, aim: 0, crouch: nr.crouch ? 1 : 0, grounded: true }); seen[id] = 1;
+    }
+    for (const id in pgs) if (!seen[id]) pgs[id].s.setVisible(false);
+  }
+  function updateNet(dt) {
+    A.pt = Math.min(A.t1, A.pt + dt); const fs = A.frames, ck = A.ck, t = A.pt; let i = 0; while (i < fs.length - 2 && fs[i + 1][ck] < t) i++;
+    const a = fs[i], b = fs[Math.min(i + 1, fs.length - 1)], span = b[ck] - a[ck], f = span > 1e-6 ? Math.max(0, Math.min(1, (t - a[ck]) / span)) : 0, C = A.cam, nr = f < 0.5 ? a : b;
+    C.x = a.x + (b.x - a.x) * f; C.z = a.z + (b.z - a.z) * f; C.yaw = a.yaw + wrap(b.yaw - a.yaw) * f; C.pitch = a.pitch + (b.pitch - a.pitch) * f; C.roll = 0; C.fov = 75;
+    C.y = a.ey && b.ey ? a.ey + (b.ey - a.ey) * f : a.y + (b.y - a.y) * f + (nr.mode === 'prone' || nr.mode === 'slide' ? 0.82 : nr.crouch ? 1.18 : 1.58);
+    if (A.local) { try { netWorld(t, dt); } catch (er) { } }
+    try { netVm(a, b, f, dt, C); } catch (er) { }
+    try { netBody(a, b, f, dt, C); } catch (er) { }
+    try { netPeers(t, dt); } catch (er) { }
+    if (A.pt >= A.t1) A.done = true;
+  }
+  function begin(killerIdx, info) {
+    if (!buf || count < 4 || killerIdx < 0) return false;
+    const tD = info.tD, t0 = Math.max(tm[fi(0)], tD - PRE), t1 = Math.min(tm[fi(count - 1)], tD + POST); if (t1 - t0 < 1.2) return false;
+    const g = ensureGhost(info.wid); A = { tip: 0, t0, t1, pt: t0, tD, k: killerIdx, ei: 0, died: false, done: false, info, saved: null, cam: { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 }, hideM: null, cx: { bobT: 0, land: 0, landV: 0, roll: 0, kp: 0, kv: 0, pg: true, pvy: 0, diveT: 0, shadeT: 0, w: 1 }, widen: 1, zoom: 0 };
+    while (A.ei < ev.length && ev[A.ei].t < t0) A.ei++;
+    g.revive(); g.setVisible(true); const f = find(t0), o = f.a * PF; for (let i = 0; i < 6; i++) g.update(0.05, loco(o, o)); poseGhost(f);
+    const kr = bots[killerIdx].soldier.root; A.hideM = []; kr.traverse((m) => { if (m.isMesh && HIDE[m.name]) A.hideM.push(m); });
+    A.vm = { ctx: { ads: 0, sprint: 0, speed01: 0, grounded: true, vy: 0, slide: false, dive: false, crouch: 0, lookYaw: 0, lookPitch: 0, reload: null, cycle: null, drop: 0, empty: false, mag: 30, hide: false }, rel: { t: 0, dur: 1, empty: false }, cyc: { t01: 0, kind: 'bolt' }, wid: -1, shots: -1, yaw: null, pitch: 0 };
+    ViewModel.setVisible(true);
+    playing = true; update(0); return true;
+  }
+  function loco(a, b, f) {   /* exactly what the live third-person model gets: body-relative move angle, dive / slide travel direction, roll, sprint-hold */
+    f = f || 0; const l = (j) => pbuf[a + j] + (pbuf[b + j] - pbuf[a + j]) * f, h = f < 0.5 ? a : b;
+    return { speed: l(5), moveAngle: pbuf[a + 48] + wrap(pbuf[b + 48] - pbuf[a + 48]) * f, sprint: pbuf[h + 7] > 0.5, gh: pbuf[h + 46] > 0.5, aim: l(50), crouch: l(47), grounded: pbuf[h + 10] > 0.5, vy: l(11), pitch: l(4), slide: pbuf[h + 52] > 0.5, dive: pbuf[h + 51] > 0.5,
+      ddx: pbuf[h + 41], ddz: pbuf[h + 42], sdx: pbuf[h + 43], sdz: pbuf[h + 44], roll: l(45) };
+  }
+  function poseGhost(f) {
+    const a = f.a * PF, b = f.b * PF, l = (j) => pbuf[a + j] + (pbuf[b + j] - pbuf[a + j]) * f.f;
+    ghost.root.position.set(l(0), l(1), l(2)); ghost.root.rotation.y = pbuf[a + 40] + wrap(pbuf[b + 40] - pbuf[a + 40]) * f.f;
+  }
+  /* ---- tracked world objects (thrown grenades, blasts, the RC-XD car ...): every sample is kept so the replay can put them back where they were, even if they are gone by now ---- */
+  const _wP = new THREE.Vector3(), _wQ = new THREE.Quaternion(), _wS = new THREE.Vector3();
+  const TS_ = 13, _tq0 = new THREE.Quaternion(), _tq1 = new THREE.Quaternion(), _tP = new THREE.Vector3(), _tS = new THREE.Vector3(), _tQ = new THREE.Quaternion(); let _tV = 1, _tO = 1;
+  function track(o, meta) { if (!o || liveSv) return; trk.push({ o, s: [], tAdd: now(), tRem: -1, meta: meta || null }); if (trk.length > 80) trk.shift(); }
+  function sampleTrk(t, lim) {
+    for (let k = trk.length - 1; k >= 0; k--) {
+      const e = trk[k], o = e.o;
+      if (e.tRem < 0) { if (!o.parent) e.tRem = t; else { let p = o.position, q = o.quaternion, s = o.scale; const m = o.material; if (o.parent !== Game.scene) { o.updateWorldMatrix(true, false); o.matrixWorld.decompose(_wP, _wQ, _wS); p = _wP; q = _wQ; s = _wS; } e.s.push(t, p.x, p.y, p.z, q.x, q.y, q.z, q.w, s.x, s.y, s.z, o.visible ? 1 : 0, m && m.opacity !== undefined ? m.opacity : 1); } }
+      if (e.s.length && e.s[0] < lim - 2) { let c = 0; while (c < e.s.length && e.s[c] < lim) c += TS_; e.s.splice(0, c); }
+      if ((e.tRem >= 0 && e.tRem < lim) || (e.tRem >= 0 && !e.s.length)) trk.splice(k, 1);
+    }
+  }
+  function trkAt(e, t) {
+    const s = e.s, n = (s.length / TS_) | 0; if (!n || t < s[0] - 0.02 || (e.tRem >= 0 && t > e.tRem + 0.02)) return false;
+    let i = n - 1; while (i > 0 && s[i * TS_] > t) i--; const j = Math.min(n - 1, i + 1), a = i * TS_, b = j * TS_, span = s[b] - s[a], f = span > 1e-6 ? Math.max(0, Math.min(1, (t - s[a]) / span)) : 0, L = (x) => s[a + x] + (s[b + x] - s[a + x]) * f;
+    _tP.set(L(1), L(2), L(3)); _tq0.set(s[a + 4], s[a + 5], s[a + 6], s[a + 7]); _tq1.set(s[b + 4], s[b + 5], s[b + 6], s[b + 7]); _tQ.copy(_tq0).slerp(_tq1, f); _tS.set(L(8), L(9), L(10)); _tV = s[a + 11]; _tO = L(12); return true;
+  }
+  function applyTrk(pt) {
+    tsv.length = 0;
+    for (let k = 0; k < trk.length; k++) {
+      const e = trk[k], o = e.o, m = o.material; tsv.push({ o, par: o.parent, vis: o.visible, op: m && m.opacity !== undefined ? m.opacity : undefined, p: o.position.clone(), q: o.quaternion.clone(), s: o.scale.clone() });
+      if (!trkAt(e, pt)) { o.visible = false; continue; }
+      if (!o.parent || o.parent !== Game.scene) Game.scene.add(o);   /* samples are world poses: a knife riding a corpse bone is shown in the scene for the replay, restoreTrk puts it back */
+      o.position.copy(_tP); o.quaternion.copy(_tQ); o.scale.copy(_tS); o.visible = _tV > 0.5; if (m && m.opacity !== undefined) m.opacity = _tO;
+    }
+  }
+  function restoreTrk() {
+    for (let k = 0; k < tsv.length; k++) { const v = tsv[k], o = v.o; o.position.copy(v.p); o.quaternion.copy(v.q); o.scale.copy(v.s); o.visible = v.vis; if (v.op !== undefined && o.material) o.material.opacity = v.op; if (v.par !== o.parent) { if (v.par) v.par.add(o); else if (o.parent) o.parent.remove(o); } }
+    tsv.length = 0;
+  }
+  /* ---- throwable chase cam: when a kill was made with a thrown frag / throwing knife / tomahawk, the replay camera leaves the thrower after the throw and follows the projectile to the kill ---- */
+  const CHASE_KIND = { frag: 'frag', tknife: 'knife', ttomahawk: 'tomahawk' }, _cA = new THREE.Vector3(), _cB = new THREE.Vector3(), _cP = new THREE.Vector3();
+  function findThrown(kwid, owner, tK) {
+    const kind = CHASE_KIND[kwid]; if (!kind || !owner) return null; let best = null, bs = 1e9;
+    for (const e of trk) {
+      const m = e.meta; if (!m || m.kind !== kind || m.owner !== owner || !e.s.length || e.tAdd > tK + 0.05) continue;
+      const sc = kind === 'frag' ? Math.abs((e.tRem >= 0 ? e.tRem : tK + 5) - tK) : tK - e.tAdd;   /* frag: the one that blew up at the kill; knife / tomahawk: the latest one thrown */
+      if (sc < bs) { bs = sc; best = e; }
+    }
+    return best && bs < (kind === 'frag' ? 0.8 : 3) ? best : null;
+  }
+  /* camera pose behind / above the projectile at time t (clamped to its flight, so after the blast it holds on the spot). st keeps the smoothed travel direction. */
+  function chaseCam(e, t, st, dt, out) {
+    const s = e.s, n = (s.length / TS_) | 0, tl = s[(n - 1) * TS_], tc = Math.max(s[0], Math.min(t, tl));
+    trkAt(e, tc); _cP.copy(_tP); trkAt(e, Math.max(s[0], tc - 0.07)); _cA.copy(_tP); trkAt(e, Math.min(tl, tc + 0.07)); _cB.copy(_tP);
+    let vx = _cB.x - _cA.x, vy = _cB.y - _cA.y, vz = _cB.z - _cA.z; const vl = Math.hypot(vx, vy, vz);
+    if (vl > 0.16 && t <= tl) { vx /= vl; vy /= vl; vz /= vl; if (!st.init) { st.dx = vx; st.dy = vy; st.dz = vz; st.init = true; } else { const k = 1 - Math.exp(-9 * dt); st.dx += (vx - st.dx) * k; st.dy += (vy - st.dy) * k; st.dz += (vz - st.dz) * k; } }
+    else if (!st.init) { st.dx = 0; st.dy = 0; st.dz = -1; st.init = true; }
+    const dl = Math.hypot(st.dx, st.dy, st.dz) || 1, ux = st.dx / dl, uy = st.dy / dl, uz = st.dz / dl, frag = e.meta && e.meta.kind === 'frag', back = frag ? 1.9 : 1.4, up = frag ? 0.55 : 0.3;
+    let hx = -ux * back + 0.28 * uz, hy = -uy * back * 0.5 + up, hz = -uz * back - 0.28 * ux, hl = Math.hypot(hx, hy, hz); const W = Game.world;
+    if (W && W.raycast(_cP.x, _cP.y, _cP.z, hx / hl, hy / hl, hz / hl, hl + 0.1)) { const k = Math.max(0.3, W.hit.t - 0.12) / hl; hx *= k; hy *= k; hz *= k; }
+    out.x = _cP.x + hx; out.y = _cP.y + hy; out.z = _cP.z + hz;
+    const fx = _cP.x + ux * 0.9 - out.x, fy = _cP.y + uy * 0.9 - out.y, fz = _cP.z + uz * 0.9 - out.z;
+    out.yaw = Math.atan2(-fx, -fz); out.pitch = Math.atan2(fy, Math.hypot(fx, fz)); return true;
+  }
+  const _chO = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 };
+  /* blend the camera C from the thrower's view into the projectile chase; returns the blend amount (0 = still on the thrower) */
+  function chaseApply(e, pt, C, st, dt) {
+    const tR = e.tAdd + 0.06; if (pt < tR) return 0; const bf = _ssm((pt - tR) / 0.3);
+    chaseCam(e, pt, st, dt, _chO); C.x += (_chO.x - C.x) * bf; C.y += (_chO.y - C.y) * bf; C.z += (_chO.z - C.z) * bf; C.yaw += wrap(_chO.yaw - C.yaw) * bf; C.pitch += (_chO.pitch - C.pitch) * bf; C.roll = (C.roll || 0) * (1 - bf); return bf;
+  }
+  const AXX = new THREE.Vector3(1, 0, 0);
+  function update(dt) {
+    if (!A) return; if (A.mode === 'net') return updateNet(dt); if (A.mode === 'best') return updateBest(dt); A.pt += dt; const pt = Math.min(A.pt, A.t1), f = find(pt), a = f.a * PF, b = f.b * PF;
+    // ghost victim
+    if (!A.died) {   /* the victim's weapon + reload as they were (the pose itself comes from the recorded body state in loco()) */
+      const hh = (f.f < 0.5 ? f.a : f.b) * PF, wi2 = pbuf[hh + 53] | 0, wid2 = wi2 >= 0 ? Weapons.IDS[wi2] : null, rd = pbuf[hh + 54];
+      const ai2 = pbuf[hh + 56] | 0, gk2 = wid2 + ':' + ai2; if (wid2 && gk2 !== ghostId) { ghost.equip(wid2, ai2 > 0 ? attReg[ai2].att : undefined); ghostId = gk2; }
+      if (rd > 0 && !A.rlOn) ghost.reload(rd, pbuf[hh + 55] > 0.5); A.rlOn = rd > 0;
+    }
+    if (!A.died) { ghost.update(dt, loco(a, b, f.f)); poseGhost(f); } else if (!A.lyingAtDeath) ghost.update(dt, null);
+    if (!A.died && pt >= A.tD) {
+      A.died = true; const i = A.info; ghost.die(i.dx, i.dz, i.head, undefined, i.zone, i.ctx);
+      const gp = ghost.root.position; FX.blood(gp.x, gp.y + 1.3, gp.z, i.dx, 0.1, i.dz, !!i.head);
+    }
+    // events
+    while (A.ei < ev.length && ev[A.ei].t <= pt) {
+      const e = ev[A.ei++]; try {
+        if (e.k === 'fx') orig['fx_' + e.n].apply(FX, e.a);
+        else if (e.k === 'snd') orig.play.apply(Sound, e.a);
+        else if (e.k === 'psnd') orig.play.call(Sound, e.a[0], Object.assign({}, e.a[1], { isPlayer: false, pos: e.p }));   /* killcam: the victim's own sounds come from where they were */
+        else if (e.k === 'wpn') {
+          const o = e.a[2]; if (o.isPlayer) { if (e.a[1] !== 'fire' || !o.pos) continue; ghost.shoot(); const gp = ghost.root.position, yw = ghost.root.rotation.y; o.isPlayer = false; orig.fx_flash.call(FX, gp.x - Math.sin(yw) * 0.6, gp.y + 1.35, gp.z - Math.cos(yw) * 0.6, -Math.sin(yw), 0, -Math.cos(yw), 0.4); }
+          orig.weapon.apply(Sound, [e.a[0], e.a[1], o]);
+        }
+      } catch (er) { }
+    }
+    // killer camera
+    const k = A.k, e0 = (f.a * nb + k) * BF + NF, e1 = (f.b * nb + k) * BF + NF, C = A.cam, L = (j) => buf[e0 + j] + (buf[e1 + j] - buf[e0 + j]) * f.f;
+    C.x = L(0); C.y = L(1); C.z = L(2); C.yaw = buf[e0 + 3] + wrap(buf[e1 + 3] - buf[e0 + 3]) * f.f; C.pitch = L(4);
+    if (A.ch === undefined) { const ko = bots[A.k]; A.ch = findThrown(A.info && A.info.kwid, ko, A.tD) || null; A.cst = {}; }
+    if (A.ch && !A.chase) { const bf0 = chaseApply(A.ch, pt, C, A.cst, dt); if (bf0 > 0.6) { A.chase = true; A.scope = false; A.widen = 1; ViewModel.setVisible(false); if (fpg) fpg.setVisible(false); } }
+    else if (A.chase) chaseApply(A.ch, pt, C, A.cst, dt);
+    // first-person weapon rig of the killer
+    if (!A.chase) {
+    const V = A.vm, c = V.ctx, X = (j) => buf[e0 + 6 + j], X1 = (j) => buf[e1 + 6 + j], XL = (j) => X(j) + (X1(j) - X(j)) * f.f, wi = X(0) | 0;
+    const ai = buf[e0 + 30] | 0; if (wi >= 0 && (wi !== V.wid || ai !== V.ai)) { V.wid = wi; V.ai = ai; ViewModel.setWeapon(Weapons.IDS[wi], ai > 0 ? { cfg: attReg[ai].cfg } : undefined); V.shots = X(15); }
+    if (wi >= 0) {
+      const cfg = Weapons.CFG[Weapons.IDS[wi]];
+      c.ads = XL(1); c.sprint = XL(2); c.speed01 = XL(3); c.grounded = X(4) > 0.5; c.vy = X(5); c.slide = X(6) > 0.5; c.dive = X(7) > 0.5; c.crouch = XL(8);
+      c.lookYaw = V.yaw === null ? 0 : wrap(C.yaw - V.yaw); c.lookPitch = C.pitch - V.pitch; V.yaw = C.yaw; V.pitch = C.pitch;
+      const rt = X(9); if (rt >= 0) { V.rel.t = rt; V.rel.dur = X(10); V.rel.empty = X(11) > 0.5; c.reload = V.rel; } else c.reload = null;
+      const ct = X(12); if (ct >= 0) { V.cyc.t01 = ct; V.cyc.kind = X(13) > 0.5 ? 'pump' : 'bolt'; c.cycle = V.cyc; } else c.cycle = null;
+      c.mag = X(14); c.empty = c.mag === 0 && !c.reload; c.drop = buf[e0 + 29]; c.thr = 0; c.gh = buf[e0 + 27] > 0.5 ? 1 : 0; c.hide = !!(cfg && cfg.scope && c.ads > 0.82);
+      const sh = X1(15); if (sh !== V.shots) { if (sh > V.shots && V.shots >= 0) { ViewModel.fire(cfg); kcKick(cfg, c.ads); } V.shots = sh; }
+      ViewModel.update(dt, c); A.scope = !!(cfg && cfg.scope); A.ads = c.ads;
+    }
+    try { kcLayer(f, e0, e1, dt, C, wi); } catch (er) { }   /* camera feel + sun shade + the killer's body, like a player's first-person view */
+    }
+    if (A.pt >= A.t1) A.done = true;
+  }
+  const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion();
+  /* swap the replay poses into the live soldiers for one render, then put the live ones back */
+  function applyPose() {
+    if (!A) return;
+    if (A.mode === 'net') { A.pv = []; for (const e of Game.entities) if (e.isNetPlayer && e.soldier && e.soldier.root) { A.pv.push([e.soldier.root, e.soldier.root.visible]); e.soldier.root.visible = false; } if (!A.local || !buf || count < 4) return; }
+    const pt = Math.min(A.pt, A.t1), f = find(pt); A.saved = A.saved || new Float32Array(nb * NF); A.par = A.par || [];
+    for (let k = 0; k < nb; k++) {
+      const b = bots[k], rig = b.soldier.rig, oa = (f.a * nb + k) * BF, ob = (f.b * nb + k) * BF, op = (f.p * nb + k) * BF, on = (f.n * nb + k) * BF, sv = k * NF;
+      const lin = !(buf[op + NF + 5] === buf[oa + NF + 5] && buf[oa + NF + 5] === buf[ob + NF + 5] && buf[ob + NF + 5] === buf[on + NF + 5]);   /* node 7 changes parent when a soldier dies: no spline across that frame */
+      for (let n = 0; n < NN; n++) wn(A.saved, sv + n * 8, rig[n]);
+      A.par[k] = rig[7].parent;
+      const wantDead = buf[oa + NF + 5] > 0.5, nodeP = wantDead ? rig[11] : rig[5]; if (rig[7].parent !== nodeP) nodeP.add(rig[7]);
+      for (let n = 0; n < NN; n++) {
+        const o1 = oa + n * 8, o2 = ob + n * 8, o0 = op + n * 8, o3 = on + n * 8, nd = rig[n], p = nd.position, lw = lin || buf[o1 + 7] !== buf[o2 + 7];
+        p.set(cub(buf, o1, o2, o0, o3, 0, f, lw), cub(buf, o1, o2, o0, o3, 1, f, lw), cub(buf, o1, o2, o0, o3, 2, f, lw));
+        cubQ(buf, o1, o2, o0, o3, 3, f, _q, lw); nd.quaternion.copy(_q);
+        nd.visible = buf[o1 + 7] > 0.5;
+      }
+    }
+    applyTrk(pt);
+    if (A.k >= 0) bots[A.k].soldier.root.visible = !!A.chase;   /* first person: hide the killer; following his throwable: he is in the shot */
+  }
+  function restorePose() {
+    if (A && A.pv) { for (const p of A.pv) p[0].visible = p[1]; A.pv = null; }
+    restoreTrk(); if (!A || !A.saved) return; const sv0 = A.saved;
+    for (let k = 0; k < nb; k++) {
+      const b = bots[k], rig = b.soldier.rig, sv = k * NF; if (rig[7].parent !== A.par[k]) A.par[k].add(rig[7]);
+      for (let n = 0; n < NN; n++) { const o = sv + n * 8, nd = rig[n]; nd.position.set(sv0[o], sv0[o + 1], sv0[o + 2]); nd.quaternion.set(sv0[o + 3], sv0[o + 4], sv0[o + 5], sv0[o + 6]); nd.visible = sv0[o + 7] > 0.5; }
+      rig[0].updateMatrixWorld(true);
+    }
+  }
+
+  /* ================= BEST PLAY (match-end highlight) =================
+     snapshot() copies the recording when a new best play is set; beginBest() plays it back from the player's own camera and
+     finishes the LAST kill in slow motion, cutting to other angles around the victim. */
+  function snapshot() { if (!buf || !pbuf || count < 8) return null; return { buf: buf.slice(), pbuf: pbuf.slice(), tm: tm.slice(), head, count, ev: ev.slice(), nb, bots: bots.slice(), trk: trk.map((e) => ({ o: e.o, s: e.s.slice(), tAdd: e.tAdd, tRem: e.tRem, meta: e.meta })) }; }
+  const sstep = (u) => { u = Math.max(0, Math.min(1, u)); return u * u * (3 - 2 * u); };
+  const SLOW = 0.2, MAIN_POST = 0.3, ANG_PRE = 0.9, ANG_POST = 0.65, ANG_SLOW = 0.28, NANG = 3;   /* slow-mo speed; own-view tail after the kill; each angle rewinds ANG_PRE s before the kill and replays it */
+  function beginBest(snap, meta) {
+    if (!snap || !meta || !meta.kills || !meta.kills.length) return false;
+    liveSv = { buf, pbuf, tm, head, count, ev, nb, bots, trk };
+    buf = snap.buf; pbuf = snap.pbuf; tm = snap.tm; head = snap.head; count = snap.count; ev = snap.ev; nb = snap.nb; bots = snap.bots; trk = snap.trk || [];
+    const ks = meta.kills, last = ks[ks.length - 1], tK = last.t, tOld = tm[fi(0)], tNew = tm[fi(count - 1)];
+    const t0 = Math.max(tOld, tK - 10, ks[0].t - 2), t1 = Math.min(tNew, tK + 1.2);
+    if (tK < tOld || t1 - t0 < 1) { ({ buf, pbuf, tm, head, count, ev, nb, bots, trk } = liveSv); liveSv = null; return false; }
+    A = { mode: 'best', kw: last.kwid || '', t0, t1, pt: t0, wall: 0, tK, tC: Math.min(tK + 0.95, t1), vi: last.vi, ei: 0, done: false, shot: -1, seg: 0, tEnd: Math.min(tK + (last.vi >= 0 ? MAIN_POST : 0.95), t1), tS: t0, cut: -9, prog: 0, scale: 1, k: -1, saved: null, par: null, cam: { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, roll: 0, fov: 75 },
+      vm: { ctx: { ads: 0, sprint: 0, speed01: 0, grounded: true, vy: 0, slide: false, dive: false, crouch: 0, lookYaw: 0, lookPitch: 0, reload: null, cycle: null, drop: 0, empty: false, mag: 30, hide: false }, rel: { t: 0, dur: 1, empty: false }, cyc: { t01: 0, kind: 'bolt' }, wid: -1, shots: -1, yaw: null, pitch: 0 } };
+    while (A.ei < ev.length && ev[A.ei].t < t0) A.ei++;
+    if (ghost) ghost.setVisible(false);
+    playing = true; update(0); return true;
+  }
+  /* first-person weapon rig of the player (same layout as the killer block in the killcam) */
+  function vmFeed(f, a, b, dt, C) {
+    const V = A.vm, c = V.ctx, X = (j) => pbuf[a + 24 + j], X1 = (j) => pbuf[b + 24 + j], XL = (j) => X(j) + (X1(j) - X(j)) * f.f, wi = X(0) | 0;
+    if (wi < 0) return;
+    const ai = pbuf[a + 56] | 0; if (wi !== V.wid || ai !== V.ai) { V.wid = wi; V.ai = ai; ViewModel.setWeapon(Weapons.IDS[wi], ai > 0 ? { cfg: attReg[ai].cfg } : undefined); V.shots = X(15); }
+    const cfg = Weapons.CFG[Weapons.IDS[wi]];
+    c.ads = XL(1); A.scope = !!(cfg && cfg.scope); A.ads = c.ads; c.sprint = XL(2); c.speed01 = XL(3); c.grounded = X(4) > 0.5; c.vy = X(5); c.slide = X(6) > 0.5; c.dive = X(7) > 0.5; c.crouch = XL(8);
+    c.lookYaw = V.yaw === null ? 0 : wrap(C.yaw - V.yaw); c.lookPitch = C.pitch - V.pitch; V.yaw = C.yaw; V.pitch = C.pitch;
+    const rt = X(9); if (rt >= 0) { V.rel.t = rt; V.rel.dur = X(10); V.rel.empty = X(11) > 0.5; c.reload = V.rel; } else c.reload = null;
+    const ct = X(12); if (ct >= 0) { V.cyc.t01 = ct; V.cyc.kind = X(13) > 0.5 ? 'pump' : 'bolt'; c.cycle = V.cyc; } else c.cycle = null;
+    c.mag = X(14); c.empty = c.mag === 0 && !c.reload; c.drop = 0; c.thr = 0; c.gh = 0; c.hide = !!(cfg && cfg.scope && c.ads > 0.82);
+    const sh = X1(15); if (sh !== V.shots) { if (sh > V.shots && V.shots >= 0) ViewModel.fire(cfg); V.shots = sh; }
+    ViewModel.update(dt, c);
+  }
+  function seekEv(t) { A.ei = 0; while (A.ei < ev.length && ev[A.ei].t < t) A.ei++; }
+  function updateBest(dt) {
+    const tK = A.tK; let seg = A.seg, ang = seg > 0, sc = 1;
+    try { const lg = Player.legs; if (lg && lg.root) lg.root.visible = false; } catch (er) { }   /* the live legs model is not where the replay is */
+    const r0 = ang ? tK - 0.45 : tK - 0.75, rl = ang ? 0.3 : 0.5, fl = ang ? ANG_SLOW : SLOW;
+    if (A.pt > r0) sc = 1 - (1 - fl) * sstep((A.pt - r0) / rl);
+    A.wall += dt; A.scale = sc; A.pt += dt * sc;
+    /* end of a segment: cut back in time and replay the kill from the next angle (or finish) */
+    if (A.pt >= A.tEnd) {
+      if (A.vi >= 0 && seg < NANG) {
+        seg = ++A.seg; ang = true; A.tS = Math.max(tm[fi(0)], tK - ANG_PRE); A.tEnd = Math.min(tK + ANG_POST, A.t1); A.pt = A.tS; A.cut = A.wall;
+        seekEv(A.tS); try { FX.clear(); } catch (er) { } sc = 1; A.scale = 1;
+      } else A.done = true;
+    }
+    const pt = Math.min(A.pt, A.t1), f = find(pt), a = f.a * PF, b = f.b * PF, pp = f.p * PF, pn = f.n * PF, tau = pt - tK, C = A.cam, L = (j) => cub(pbuf, a, b, pp, pn, j, f), LA = (j) => cubA(pbuf, a, b, pp, pn, j, f);
+    while (A.ei < ev.length && ev[A.ei].t <= pt) {   /* shots, tracers, impacts, blood, sounds */
+      const e = ev[A.ei++]; try {
+        if (e.k === 'fx') orig['fx_' + e.n].apply(FX, e.a);
+        else if (e.k === 'snd') orig.play.apply(Sound, e.a);
+        else if (e.k === 'psnd') { if (A.shot > 0 && e.p) orig.play.call(Sound, e.a[0], Object.assign({}, e.a[1], { isPlayer: false, pos: e.p })); else orig.play.apply(Sound, e.a); }   /* best play: your own jump / land / dive / reload sounds (from your soldier in the outside angles) */
+        else if (e.k === 'wpn') { orig.weapon.apply(Sound, [e.a[0], e.a[1], e.a[2]]); if (A.shot > 0 && ghost && e.a[1] === 'fire' && e.a[2] && e.a[2].isPlayer) ghost.shoot(); }
+      } catch (er) { }
+    }
+    const shot = ang ? seg : 0;
+    if (shot !== A.shot) {
+      A.shot = shot; A.rlOn = false; ViewModel.setVisible(shot === 0);
+      try {   /* cinematic angles: the player's own soldier is in the shot (first person = no body) */
+        if (ghost) ghost.setVisible(false); if (fpg) fpg.setVisible(false);
+        if (shot > 0) { const f0 = find(Math.min(A.pt, A.t1)), o0 = f0.a * PF, wi0 = pbuf[o0 + 24] | 0, g = ensureGhost(wi0 >= 0 ? Weapons.IDS[wi0] : null); g.revive(); g.setVisible(true); for (let i = 0; i < 6; i++) g.update(0.05, loco(o0, o0)); poseGhost(f0); }
+      } catch (er) { }
+    }
+    if (shot > 0 && ghost) {
+      try {
+        const wi = pbuf[a + 24] | 0, wid = wi >= 0 ? Weapons.IDS[wi] : null; const ai3 = pbuf[a + 56] | 0, gk3 = wid + ':' + ai3; if (wid && gk3 !== ghostId) { ghost.equip(wid, ai3 > 0 ? attReg[ai3].att : undefined); ghostId = gk3; }
+        { const hh = (f.f < 0.5 ? a : b), rd = pbuf[hh + 54]; if (rd > 0 && !A.rlOn) ghost.reload(rd, pbuf[hh + 55] > 0.5); A.rlOn = rd > 0; }   /* your reload, seen from outside */
+        ghost.update(dt * sc, loco(a, b, f.f)); poseGhost(f);
+      } catch (er) { }
+    }
+    const u = ang ? Math.max(0, Math.min(1, (pt - A.tS) / ((A.tEnd - A.tS) || 1))) : 0;
+    A.prog = A.vi < 0 ? Math.max(0, Math.min(1, (pt - A.t0) / ((A.tC - A.t0) || 1))) : !ang ? 0.4 * Math.max(0, Math.min(1, (pt - A.t0) / ((A.tEnd - A.t0) || 1))) : 0.4 + 0.2 * ((seg - 1) + u);
+    if (shot === 0) {   /* the player's own view */
+      C.x = L(16); C.y = L(17); C.z = L(18); C.pitch = LA(19); C.yaw = LA(20); C.roll = LA(21); C.fov = L(22) || 75;
+      if (A.ch === undefined) { A.ch = findThrown(A.kw, Game.player, tK) || null; A.cst = {}; }
+      const bfC = A.ch ? chaseApply(A.ch, pt, C, A.cst, dt * sc) : 0;   /* the final kill was a throwable: leave the player, follow the grenade / knife / tomahawk */
+      if (bfC > 0) C.fov = C.fov + (68 - C.fov) * bfC;
+      if (bfC > 0.6) { if (!A.chase) { A.chase = true; A.scope = false; ViewModel.setVisible(false); try { if (fpg) fpg.setVisible(false); } catch (er) { } } }
+      else { if (A.chase) { A.chase = false; ViewModel.setVisible(true); } vmFeed(f, a, b, dt * sc, C);
+        try { fpBody(f, a, b, dt * sc, C); } catch (er) { } }   /* your legs / torso when sliding, diving, looking down */
+    } else {   /* cinematic angles around the victim - each one replays the victim getting killed */
+      const k = A.vi, o1 = (f.a * nb + k) * BF, o2 = (f.b * nb + k) * BF, o0 = (f.p * nb + k) * BF, o3 = (f.n * nb + k) * BF, g = (j) => cub(buf, o1, o2, o0, o3, j, f);
+      const vx = g(0), vfy = g(1), vz = g(2), vy = vfy + 1.05 - 0.5 * sstep(tau / 0.4);
+      let dx = vx - L(0), dz = vz - L(2); const dl = Math.hypot(dx, dz) || 1; dx /= dl; dz /= dl; const sx = -dz, sz = dx;
+      let phi, R, h, fov, roll = 0, ty = vy, ox = vx, oy = vy, oz = vz;   /* ox/oy/oz = the point the camera orbits (the victim, or the shooter in angle 3) */
+      if (shot === 1) { phi = 0.95 + 1.2 * u; R = 3.0 - 0.7 * u; h = vy + 0.2; fov = 48; }                                   /* side orbit */
+      else if (shot === 2) { phi = -0.6 + 0.25 * u; R = 3.6 - 1.6 * u; h = vfy + 0.3; ty = vy - 0.1; fov = 55; roll = 0.07; }   /* low, pushing in from the front */
+      else { const py = L(1); ox = L(0); oz = L(2); oy = py + 1.1; phi = 1.25 + 1.0 * u; R = 3.4 - 0.5 * u; h = py + 1.55; ty = py + 1.15; fov = 52; }   /* the player himself: side-on, orbiting round to his front as he fires */
+      const W = Game.world; let cx = ox, cz = oz, m = 1;
+      for (let i = 0; i < 4; i++) { cx = ox + m * R * (-dx * Math.cos(phi) + sx * Math.sin(phi)); cz = oz + m * R * (-dz * Math.cos(phi) + sz * Math.sin(phi)); if (!W || W.clearLine(ox, oy, oz, cx, h, cz)) break; m *= 0.72; }
+      const fx = ox - cx, fy = ty - h, fz = oz - cz;
+      C.x = cx; C.y = h; C.z = cz; C.yaw = Math.atan2(-fx, -fz); C.pitch = Math.atan2(fy, Math.hypot(fx, fz)); C.roll = roll; C.fov = fov;
+    }
+    if (A.vi < 0 && A.pt >= A.tC) A.done = true;
+  }
+  function end() { pgClear(); if (A && A.mode === 'best' && liveSv) { ({ buf, pbuf, tm, head, count, ev, nb, bots, trk } = liveSv); liveSv = null; } playing = false; A = null; ViewModel.setVisible(false); if (fpg) fpg.setVisible(false); if (ghost) { ghost.setVisible(false); ghost.revive(); } }
+  return { install, reset, record, track, begin, update, end, applyPose, restorePose, get active() { return !!A; }, get done() { return !A || A.done; }, get cam() { return A && A.cam; }, get scopeAmt() { if (!A || !A.scope) return 0; const s = Math.max(0, Math.min(1, ((A.ads || 0) - 0.5) / 0.4)); return s * s * (3 - 2 * s); }, get fovScale() { if (!A) return 1; if (A.chase) return 1.1; const w = A.widen || 1; return w * (A.scope ? 1 - (1 - 1 / 6) * Math.max(0, Math.min(1, (A.ads - 0.3) / 0.6)) : A.zoom ? 1 / (1 + (A.zoom - 1) * _ssm(A.ads || 0)) : 1 - 0.3 * (A.ads || 0)); }, get progress() { return A ? (A.mode === 'best' ? Math.max(0, Math.min(1, A.prog)) : Math.max(0, Math.min(1, (A.pt - A.t0) / (A.t1 - A.t0)))) : 0; }, get label() { return A && A.mode === 'best' && A.seg > 0 ? 'INSTANT REPLAY  \u00b7  ANGLE ' + A.seg + ' / ' + NANG : ''; }, get length() { return A ? A.t1 - A.t0 : 0; }, recordNet, beginNet, beginNetBest, snapshot, beginBest, hold(t) { holdT = t; }, get best() { return !!A && A.mode === 'best'; }, get shot() { return A ? A.shot : 0; }, get scale() { return A ? (A.scale || 1) : 1; }, get fade() { if (!A || A.mode !== 'best') return 0; return Math.max(Math.max(0, 1 - A.wall / 0.35), Math.max(0, 1 - (A.wall - A.cut) / 0.3), Math.max(0, Math.min(1, (A.pt - (A.tEnd - 0.07)) / 0.07))); } };
+})();
+Replay.install();
+
+/* ===== 65_player.js ===== */
+/* ============================================================================
+   65_player.js — the human player: omni-movement state machine (ground / air / slide / dive / prone / mantle),
+   look + recoil, weapon handling (fire, reload, ADS, switch), camera, HUD feed.
+   Input struct (built by Game each frame): mx,my, fwd,back,left,right, sprint,sprintPressed, crouch,crouchPressed, dive,divePressed,
+   jump,jumpPressed, fire,firePressed, ads, reload,pickup,drop,slot1,slot2 (edges), wheel (-1/0/1).
+   ============================================================================ */
+const Player = (function () {
+  'use strict';
+  const D2R = Math.PI / 180, clamp = U.clamp, lerp = U.lerp, ss = U.smoothstep;
+  const K = {
+    R: 0.36, H_STAND: 1.8, H_CROUCH: 1.35, H_SLIDE: 1.0, H_PRONE: 0.7,
+    EYE_STAND: 1.62, EYE_CROUCH: 1.22, EYE_SLIDE: 0.84, EYE_PRONE: 0.74,
+    WALK: 5.6, SPRINT: 8.5, CROUCH: 3.0, PRONE: 1.5, ACC: 55, FRIC: 42, AIR_ACC: 9, GRAV: 21, JUMP: 6.1, STEP: 0.45,
+    SLIDE_BOOST: 10.6, SLIDE_DEC: 7.4, SLIDE_MIN: 3.0, SLIDE_MAX_T: 1.4, SLIDE_CD: 0.45,
+    DIVE_SPEED: 13.0, DIVE_UP: 6.2, DIVE_EYE: 1.0, PRONE_RECOVER: 0.55, MANTLE_T: 0.52, VAULT_T: 0.34, VAULT_MAX: 1.2, VAULT_DROP: 1.5, VAULT_SPEED: 3.2
+  };
+  let P = null;
+  const _m = new THREE.Vector3(), _e = new THREE.Vector3(), _led = { x: 0, y: 0, z: 0 }, _cap = [];
+  const vmCtx = { ads: 0, sprint: 0, speed01: 0, grounded: true, vy: 0, slide: false, dive: false, crouch: 0, lookYaw: 0, lookPitch: 0, reload: null, cycle: null, drop: 0, empty: false, mag: 0, hide: false };
+  const vmRelL = { t: 0, dur: 1, empty: false }, vmRel = { t: 0, dur: 1, empty: false }, vmCyc = { t01: 0, kind: 'bolt' };
+  const snd = (n, o) => { if (typeof Sound !== 'undefined' && Sound.ready) Sound.play(n, o || {}); };
+  const sndW = (id, ev, o) => { if (typeof Sound !== 'undefined' && Sound.ready) Sound.weapon(id, ev, o || {}); };
+  const pl = (x, y, z) => ({ x, y, z });
+  const STEPMAT = { concrete: 1, metal: 1, dirt: 1, tile: 1, wood: 1 };
+
+  function create() {
+    P = {
+      id: 0, name: 'YOU', team: 0, isPlayer: true, isBot: false, alive: false, hp: 100, maxHp: 100, protect: 0, regenT: 0, lastDamager: null, lastDamagerT: -9,
+      pos: { x: 0, y: 0, z: 0 }, body: { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, r: K.R, h: K.H_STAND, grounded: true, groundMat: 'concrete', hitWall: false, landVy: 0, groundY: 0 },
+      eyeY: 1.62, headH: 1.6, chestH: 1.1, yaw: 0, pitch: 0, roll: 0, t: 0,
+      mode: 'ground', modeT: 0, crouch: false, sprinting: false, sprintOut: 0, slideCd: 0, proneT: 0, recoverT: 0, ads: 0, scopeState: 0,
+      slots: { primary: null, secondary: null, melee: null }, active: 'primary', swit: null, swing: null, swingN: 0, fireBuf: 0, autoReloadT: 0, recAccV: 0, recAccH: 0, sinceShot: 9,
+      eyeH: 1.62, landDip: 0, landDipV: 0, stepDist: 0, lookYaw: 0, lookPitch: 0, fovTan: 1, baseTan: 1, shadeT: 0, rlP: 0, rlPV: 0, rlR: 0, rlRV: 0, rlY: 0, rlYV: 0, rlPrev: 0, ins: { t: 0, dur: 5.6, on: false }, deathT: 0, killer: null, flinch: 0, flinchV: 0, shake: 0, kShake: 0, lg: 0, lgV: 0, fk: 0, fkV: 0, bobT: 0, hSpeed: 0, mantle: null, spreadNow: 1,
+      loadout: { primary: 'ak', secondary: 'm1911', perks: ['none', 'none', 'none'] }, perks: {}, pendingLoadout: null, dead: false,
+      stats: { kills: 0, deaths: 0, headshots: 0, shots: 0, hits: 0, dmg: 0 },
+      getCapsules(out) {
+        const b = P.body, h = b.h, x = b.x, y = b.y, z = b.z; while (out.length < 3) out.push({ part: '', a: new THREE.Vector3(), b: new THREE.Vector3(), r: 0 });
+        out[0].zone = out[1].zone = out[2].zone = out[0].rx = out[1].rx = out[2].rx = undefined; let c = out[0]; c.part = 'head'; c.a.x = c.b.x = x; c.a.y = c.b.y = y + h - 0.2; c.a.z = c.b.z = z; c.r = 0.14;
+        c = out[1]; c.part = 'torso'; c.a.x = c.b.x = x; c.a.z = c.b.z = z; c.a.y = y + h * 0.5; c.b.y = y + h - 0.38; c.r = 0.24;
+        c = out[2]; c.part = 'leg'; c.a.x = c.b.x = x; c.a.z = c.b.z = z; c.a.y = y + 0.18; c.b.y = y + h * 0.5; c.r = 0.17; out.length = 3; return out;
+      }
+    };
+    return P;
+  }
+
+  /* ---- perks: overkill (offensive) / quick fix (defensive) / dexterity (mobility) ---- */
+  function mkLoadout(lo) {
+    const pk = Array.isArray(lo.perks) ? lo.perks : []; let sec = lo.secondary;
+    if (pk[0] !== 'overkill' && Weapons.CFG[sec] && Weapons.CFG[sec].slot === 'primary') sec = 'm1911';   /* a primary in the secondary slot needs Overkill */
+    return { primary: lo.primary, secondary: sec, perks: [pk[0] || 'none', pk[1] || 'none', pk[2] || 'none'] };
+  }
+  function dexF(v) { return P && P.perks && P.perks.dexterity ? v : 1; }
+  /* gung-ho: a gun that can be fired one-handed (everything but pump / bolt actions; not the knife) may be hipfired while sprinting */
+  function ghOK(ws) { return !!(P && P.perks && P.perks.gungho && ws && ws.cfg.kind !== 'melee' && ws.cfg.mode !== 'PUMP' && ws.cfg.mode !== 'BOLT'); }
+  function slotFor(cfg, id) {   /* which slot a picked-up weapon goes into; with Overkill a primary may take the secondary slot */
+    const s = cfg.slot; if (!P || !P.perks || !P.perks.overkill || s !== 'primary') return s;
+    for (const k of ['primary', 'secondary']) if (P.slots[k] && P.slots[k].id === id) return k;
+    if (!P.slots.primary) return 'primary'; if (!P.slots.secondary) return 'secondary';
+    const a = P.slots[P.active]; if (a && a.cfg.slot === 'primary') return P.active;
+    if (P.slots.secondary.cfg.slot === 'primary') return 'secondary';
+    return 'primary';
+  }
+  function onKill() { if (P && P.alive && P.perks && P.perks.quickfix) P.regenT = Math.max(P.regenT, 99); }   /* quick fix: a kill starts the regen at once */
+  function loadoutState(lo) { return { primary: Gunsmith.stateFor(lo.primary), secondary: Gunsmith.stateFor(lo.secondary), melee: Weapons.newState('knife') }; }   /* every spawn picks up the weapons' saved Gunsmith builds */
+
+  function spawn(sp, lo) {
+    const B = P.body; P.alive = true; P.downed = false; P.downStash = null; P.bleed = 0; P.ins.on = false; P.dead = false; P.hp = 100; P.protect = 0; P.regenT = 0; P.lastDamager = null;
+    B.x = sp.x; B.y = (sp.y !== undefined ? sp.y : (Game.world.surfaceY(sp.x, sp.z, 3) || 0)); B.z = sp.z; B.vx = B.vy = B.vz = 0; B.h = K.H_STAND; B.grounded = true; P.pos.x = B.x; P.pos.y = B.y; P.pos.z = B.z;
+    P.yaw = sp.yaw || 0; P.pitch = 0; P.roll = 0; P.mode = 'ground'; P.modeT = 0; P.crouch = false; P.sprinting = false; P.sprintOut = 0; P.slideCd = 0; P.proneT = 0; P.recoverT = 0; P.ads = 0; P.swit = null; P.fireBuf = 0; P.autoReloadT = 0; P.recAccV = P.recAccH = 0; P.eyeH = K.EYE_STAND; P.landDip = P.landDipV = 0; P.mantle = null; P.flinch = P.flinchV = P.shake = P.kShake = P.lg = P.lgV = P.fk = P.fkV = 0;
+    if (lo) { P.loadout = mkLoadout(lo); } else if (P.pendingLoadout) { P.loadout = P.pendingLoadout; }
+    { const lp = P.loadout.perks || []; P.perks = { overkill: lp[0] === 'overkill', preparation: lp[0] === 'preparation', quickfix: lp[1] === 'quickfix', eod: lp[1] === 'eod', vulture: lp[1] === 'vulture', dexterity: lp[2] === 'dexterity', gungho: lp[2] === 'gungho', lightweight: lp[2] === 'lightweight', actionhero: lp[0] === 'actionhero', tacmask: lp[1] === 'tacmask', martyrdom: lp[1] === 'martyrdom', paranoia: lp[1] === 'paranoia' }; }
+    if (legs && legs.dead) { legs.s.revive(); legs.dead = false; legs.tp = null; legs.root.rotation.set(0, 0, 0); legs.s.bones.wpn.visible = false; } P.deathFx = false; P.oc = null;
+    P.pendingLoadout = null; const s = loadoutState(P.loadout); P.slots.primary = s.primary; P.slots.secondary = s.secondary; P.slots.melee = s.melee; P.swing = null; P.active = 'primary'; if (typeof Equipment !== 'undefined') Equipment.onSpawn(); if (typeof Killstreaks !== 'undefined') Killstreaks.onSpawn();
+    ViewModel.setWeapon(P.slots.primary.id, P.slots.primary); ViewModel.setVisible(true); P.scopeState = 0; P.burstLeft = 0;
+    sndW(P.slots.primary.id, 'draw', { isPlayer: true }); UI.hud.setScope(0); UI.hud.setVignette(0);
+    Sound && Sound.loop && Sound.loop('slide', false);
+  }
+  function setPendingLoadout(lo) { P.pendingLoadout = mkLoadout(lo); }
+
+  /* ---------------------------------------------------------------- helpers */
+  function approach(B, tx, tz, acc, dt) { const dx = tx - B.vx, dz = tz - B.vz, d = Math.hypot(dx, dz); if (d < 1e-6) return; const m = Math.min(d, acc * dt); B.vx += dx / d * m; B.vz += dz / d * m; }
+  function canStandUp() { const B = P.body; return Game.world.canStand(B.x, B.y, B.z, K.R - 0.02, K.H_STAND, 0.05); }
+  function canCrouchUp() { const B = P.body; return Game.world.canStand(B.x, B.y, B.z, K.R - 0.02, K.H_CROUCH, 0.05); }
+  function hFor(mode) { return mode === 'slide' ? K.H_SLIDE : (mode === 'dive' || mode === 'prone') ? K.H_PRONE : P.crouch ? K.H_CROUCH : K.H_STAND; }
+
+  function findLedge(dx, dz) {
+    const W = Game.world, B = P.body, reach = K.R + 0.32; let best = -1;
+    /* probe a run of points from the body's skin out to full reach: a glass rail / low wall is only a few cm thick, so one probe point misses it unless you are exactly the right distance away (at sprint speed that window lasts a frame or two) */
+    for (let pd = K.R + 0.02; pd <= reach + 0.001; pd += 0.075) {
+      const px = B.x + dx * pd, pz = B.z + dz * pd, n = W.query(px, pz, 0.1), buf = W.buf;
+      for (let i = 0; i < n; i++) { const c = buf[i]; if (!c.solid) continue; const dy = c.y1 - B.y; if (dy < 0.5 || dy > 1.6) continue; if (!W._overlapXZ(c, px, pz, 0.06)) continue; if (c.y1 > best) best = c.y1; }
+    }
+    if (best < 0) return null;
+    const tx = B.x + dx * (reach + 0.34), tz = B.z + dz * (reach + 0.34);
+    if (!W.canStand(tx, best, tz, 0.3, 1.65, 0.03)) return null;
+    /* the vault path has to be open at ledge height: a window sill under a pane of glass (or any thin wall that rises above the ledge top) blocks the climb, otherwise it carries you straight through the wall */
+    for (let pd = K.R * 0.5; pd <= reach + 0.341; pd += 0.1) { if (!W.canStand(B.x + dx * pd, best, B.z + dz * pd, 0.12, 1.0, 0.03)) return null; }
+    _led.x = tx; _led.y = best; _led.z = tz; return _led;
+  }
+
+  function startSlide(wx, wz, hs) {
+    const B = P.body; let dx = B.vx, dz = B.vz; const l = Math.hypot(dx, dz); if (l > 0.5) { dx /= l; dz /= l; } else { dx = wx; dz = wz; }
+    const sp = (Math.max(hs, 0) < K.SLIDE_BOOST ? K.SLIDE_BOOST : hs * 1.03) * dexF(1.1); B.vx = dx * sp; B.vz = dz * sp; P.mode = 'slide'; P.modeT = 0; P.crouch = true; P.sprinting = false; P.slideDirX = dx; P.slideDirZ = dz; P.ads = Math.min(P.ads, 0.0);
+    snd('slide_start', { isPlayer: true, surface: B.groundMat }); if (Sound.loop) Sound.loop('slide', true, { isPlayer: true, surface: B.groundMat });
+  }
+  function endSlide(toSprint) {
+    if (!toSprint && P.body.grounded) snd('slide_stop', { isPlayer: true, surface: P.body.groundMat });   /* the slide ran out of speed / time: scrape to a halt (not when you pop up into a sprint or slide off a ledge) */
+    if (Sound.loop) Sound.loop('slide', false); P.slideCd = K.SLIDE_CD; P.mode = 'ground'; P.modeT = 0;
+    P.crouch = P.input && P.input.crouch ? true : !canStandUp(); if (toSprint) P.sprintOut = 0;
+  }
+  function startDrop(fromSlide) {
+    const B = P.body; if (fromSlide) { B.vx *= 0.92; B.vz *= 0.92; P.slideCd = K.SLIDE_CD; } else { B.vx *= 0.4; B.vz *= 0.4; }   /* from a slide the momentum carries: you skid on into the prone pose */ P.mode = 'prone'; P.modeT = 0; P.proneT = 0; P.sprinting = false; P.crouch = false; P.ads = Math.min(P.ads, 0.3);
+    if (Sound.loop) Sound.loop('slide', false); snd('dive_land', { isPlayer: true, gain: 0.6, surface: B.groundMat }); FX.dust(B.x, B.y, B.z, 3, 1.4, { size: 0.45, a: 0.3 });
+  }
+  function startDive(wx, wz, hasInput, fromAir) {
+    const B = P.body; let dx = wx, dz = wz; if (!hasInput) { dx = -Math.sin(P.yaw); dz = -Math.cos(P.yaw); }
+    B.vx = dx * K.DIVE_SPEED * dexF(1.3); B.vz = dz * K.DIVE_SPEED * dexF(1.3); B.vy = fromAir ? Math.max(B.vy, K.DIVE_UP * 0.55) : K.DIVE_UP; B.grounded = false; P.mode = 'dive'; P.modeT = 0; P.sprinting = false; P.crouch = false; P.diveAir = true;
+    { const cw = P.slots[P.active]; if (cw && cw.reload) Weapons.cancelReload(cw); P.autoReloadT = 0; }
+    if (Sound.loop) Sound.loop('slide', false); snd(fromAir ? 'dive' : 'jump', fromAir ? { isPlayer: true } : { isPlayer: true, gain: 2, surface: B.groundMat });   /* dolphin dive off the ground = the jump take-off sound; a mid-air dive keeps the whoosh */
+  }
+
+  /* ---------------------------------------------------------------- look */
+  function look(dt, inp) {
+    const sens = (Game.settings.sensitivity || 1) * 0.0022 * clamp(P.sensK === undefined ? 1 : P.sensK, 0.12, 1.2) * lerp(1, Game.settings.adsSens || 1, P.ads || 0);
+    P.lookYaw = -inp.mx * sens; P.lookPitch = -inp.my * sens * (Game.settings.invertY ? -1 : 1); P.yaw += P.lookYaw;
+    /* while diving / prone / sliding the view can't tip down into your own body: the downward limit eases in and out with the stance */
+    { const tm = P.mode === 'dive' || P.mode === 'prone' ? -0.2 : P.mode === 'slide' ? -0.3 : -1.52; P.pMin = (P.pMin === undefined ? -1.52 : P.pMin) + (tm - (P.pMin === undefined ? -1.52 : P.pMin)) * (1 - Math.exp(-10 * dt)); }
+    P.pitch = clamp(P.pitch + P.lookPitch, P.pMin, 1.52);
+    if (P.pitch < P.pMin) P.pitch = P.pMin;
+    if (P.yaw > 100 || P.yaw < -100) P.yaw = U.wrapPI(P.yaw);
+    if (P.lookPitch < 0 && P.recAccV > 0) P.recAccV = Math.max(0, P.recAccV + P.lookPitch);
+    P.sinceShot += dt;
+    if (P.sinceShot > 0.13 && (P.recAccV > 1e-5 || Math.abs(P.recAccH) > 1e-5)) {
+      const aw = P.slots[P.active], rcF = (aw && aw.cfg.rc) || 1, k = 1 - Math.exp(-8 * rcF * dt), tv = P.recAccV * k, th = P.recAccH * k; P.pitch = Math.max(P.pMin === undefined ? -1.52 : P.pMin, P.pitch - tv * 0.62 * clamp(rcF, 0.5, 1.5)); P.recAccV -= tv; P.yaw -= th * 0.4 * clamp(rcF, 0.5, 1.6); P.recAccH -= th;
+    }
+    // flinch spring (damage) + shake decay
+    P.flinchV += (-120 * P.flinch - 14 * P.flinchV) * dt; P.flinch += P.flinchV * dt; P.shake = Math.max(0, P.shake - dt * 5); P.kShake = Math.max(0, P.kShake - dt * 6);
+  }
+
+  /* ---------------------------------------------------------------- movement */
+  function movement(dt, inp, cfg) {
+    const B = P.body, sinY = Math.sin(P.yaw), cosY = Math.cos(P.yaw);
+    const f = (inp.fwd ? 1 : 0) - (inp.back ? 1 : 0), s = (inp.right ? 1 : 0) - (inp.left ? 1 : 0);
+    let wx = -sinY * f + cosY * s, wz = -cosY * f - sinY * s; const wl = Math.hypot(wx, wz), has = wl > 0.001; if (has) { wx /= wl; wz /= wl; }
+    const hs0 = Math.hypot(B.vx, B.vz), wm = (cfg ? lerp(cfg.moveMul, cfg.adsMoveMul, P.ads) : 1) * (P.spdMul || 1) * (P.stimMul || 1);
+    P.slideCd = Math.max(0, P.slideCd - dt); P.vaultCd = Math.max(0, (P.vaultCd || 0) - dt); P.sprintOut = Math.max(0, P.sprintOut - dt); P.recoverT = Math.max(0, P.recoverT - dt); P.modeT += dt; P.descT = Math.max(0, (P.descT || 0) - dt);
+    let jumped = false;
+
+    if (P.mode === 'mantle') {
+      const M = P.mantle, vt = M.vault; M.t += dt * dexF(1.5) / (vt ? (M.dur || K.VAULT_T) : K.MANTLE_T); const t = Math.min(1, M.t), up = vt ? ss(0, 0.55, t) : ss(0, 0.6, t), fw = vt ? ss(0.1, 1, t) : ss(0.35, 1, t);
+      B.x = M.x0 + (M.x1 - M.x0) * fw; B.z = M.z0 + (M.z1 - M.z0) * fw; B.y = M.y0 + (M.y1 - M.y0) * up + (vt ? Math.sin(t * Math.PI) * 0.1 : 0); B.vx = B.vy = B.vz = 0; B.grounded = false;
+      if (t >= 1) {
+        P.mode = 'ground'; P.modeT = 0; P.mantle = null; P.crouch = false;
+        if (vt) { B.y = M.y1; B.vx = M.dx * M.sp; B.vz = M.dz * M.sp; P.recoverT = 0; P.vaultCd = 0.3; }   /* hurdle: you come out of it still running (sprint resumes at once if held) */
+        else { B.vx = M.dx * 2.4; B.vz = M.dz * 2.4; P.recoverT = 0.1; }
+      }
+      P.pos.x = B.x; P.pos.y = B.y; P.pos.z = B.z; P.hSpeed = 0; return;
+    }
+
+    if (P.mode === 'ground') {
+      // slide / dive are decided first, while the sprint state of the previous frame is still intact (omni-movement: any direction)
+      const sprintIntent = P.sprinting || (inp.sprint && has && P.sprintOut <= 0 && P.recoverT <= 0);
+      if (inp.slidePressed && sprintIntent && hs0 > 4.4 && P.slideCd <= 0 && !P.crouch && B.grounded) startSlide(wx, wz, hs0);
+      else if (inp.pronePressed && B.grounded) startDrop();   /* dedicated prone key */
+      else if (inp.divePressed && B.grounded) { const dm = inp.diveMode; if (dm === 'prone') startDrop(); else if (dm === 'dive' || sprintIntent) startDive(wx, wz, has, false); else startDrop(); } /* smart: sprinting = dolphin dive, otherwise drop to prone */
+    }
+    if (P.mode === 'ground' || P.mode === 'air') {
+      // stance
+      if (P.mode === 'ground') {
+        const wantCrouch = inp.crouch; if (wantCrouch) P.crouch = true; else if (P.crouch && canStandUp()) P.crouch = false;
+      }
+      // sprint state (omni: any direction while a movement key is held)
+      /* firing and throwing a grenade break a sprint - unless you run Gung-Ho (hipfire needs a one-handed gun; throwing works with any). Reloading never breaks a sprint. */
+      const wsN = P.slots[P.active], ghF = ghOK(wsN), handsBusy = !(P.perks && P.perks.gungho) && P.throwT > 0;
+      const canSprint = inp.sprint && has && !P.crouch && P.sprintOut <= 0 && P.recoverT <= 0 && P.mode === 'ground' && !inp.ads && !handsBusy;
+      const fireAny = inp.fire || (P.akOn && inp.akR); if (fireAny && P.sprinting && !ghF) { P.sprinting = false; P.sprintOut = 0.2 * ((P.slots[P.active] && P.slots[P.active].cfg.sprintOutMul) || 1); }
+      P.sprinting = canSprint && !(fireAny && !ghF) ? true : false;
+    }
+
+    if (P.mode === 'ground') {
+      if (!B.grounded) { P.mode = 'air'; }
+      else {
+        let tgt = P.sprinting ? K.SPRINT : P.crouch ? K.CROUCH : K.WALK; tgt *= wm;
+        if (P.sprinting) { const fd = wx * -sinY + wz * -cosY; if (fd < -0.1) tgt *= lerp(1, 0.84, clamp(-fd, 0, 1)); }
+        if (has) approach(B, wx * tgt, wz * tgt, K.ACC, dt); else approach(B, 0, 0, K.FRIC, dt);
+        // jump / mantle
+        if (inp.jumpPressed || (inp.jump && P.jumpHold)) {
+          let led = has || true ? findLedge(has ? wx : -sinY, has ? wz : -cosY) : null;
+          if (led && (has || inp.jumpPressed)) { const mx = has ? wx : -sinY, mz = has ? wz : -cosY; startMantleTo(led, mx, mz, speedVaultOk(led, mx, mz)); }
+          else if (P.crouch ? canStandUp() : true) { B.vy = K.JUMP * (P.crouch ? 0.9 : 1); B.grounded = false; P.crouch = false; P.mode = 'air'; jumped = true; snd('jump', { isPlayer: true, gain: 2, surface: B.groundMat }); }
+        }
+        /* auto-vault (hurdle): running into a waist-high obstacle vaults it without a jump press. Not while aiming / crouched, and never off a big drop (balcony edge) - JUMP still does those. */
+        if (P.mode === 'ground' && Game.settings.autoVault !== false && has && P.vaultCd <= 0 && !P.crouch && P.recoverT <= 0 && !inp.ads && P.ads < 0.3 && (B.vx * wx + B.vz * wz) > 2.4) {
+          const led = findLedge(wx, wz);
+          if (led && led.y - B.y <= K.VAULT_MAX && vaultLandingOk(led, wx, wz)) startMantleTo(led, wx, wz, true);
+        }
+      }
+    } else if (P.mode === 'air') {
+      // preserve momentum, allow limited steering
+      if (has) { const cur = Math.max(hs0, K.WALK * wm), a = K.AIR_ACC; approach(B, wx * cur, wz * cur, a, dt); }
+      if (inp.jump && B.vy < 2.2) { const led = findLedge(has ? wx : -sinY, has ? wz : -cosY); if (led) { const mx = has ? wx : -sinY, mz = has ? wz : -cosY; startMantleTo(led, mx, mz, speedVaultOk(led, mx, mz)); } }
+      if (inp.divePressed && !B.grounded && P.diveCd !== true && inp.diveMode !== 'prone') { startDive(wx, wz, has, true); }
+    } else if (P.mode === 'slide') {
+      let sp = Math.hypot(B.vx, B.vz), dx = P.slideDirX, dz = P.slideDirZ;
+      if (Game.world.surfaceY(B.x + dx * 0.55, B.z + dz * 0.55, B.y + 0.3) < B.y - 0.06) P.descT = 0.25;   /* ground drops away ahead (stairs / slope): the slide keeps its speed and its time */
+      if (P.descT > 0) P.modeT = Math.max(0, P.modeT - dt); else sp = Math.max(0, sp - K.SLIDE_DEC * dexF(0.85) * (P.modeT > 0.8 ? 1.5 : 1) * dt);
+      if (has) { // steer gently toward the wish direction
+        const a0 = Math.atan2(dx, dz), a1 = Math.atan2(wx, wz); let da = U.wrapPI(a1 - a0); da = clamp(da, -1.3 * dt, 1.3 * dt); const a = a0 + da; dx = Math.sin(a); dz = Math.cos(a); P.slideDirX = dx; P.slideDirZ = dz;
+      }
+      B.vx = dx * sp; B.vz = dz * sp;
+      if ((inp.pronePressed || inp.divePressed) && B.grounded) startDrop(true);   /* prone key mid-slide: throw yourself flat and keep skidding (supine if sliding forward, belly-down if backward, side-dive pose if sideways) */
+      else if (inp.jumpPressed) { B.vy = K.JUMP * 0.88; B.grounded = false; P.crouch = false; P.mode = 'air'; if (Sound.loop) Sound.loop('slide', false); P.slideCd = 0.3; snd('jump', { isPlayer: true, gain: 2, surface: B.groundMat }); }
+      else if (inp.sprintPressed && has && sp > 3.2 && canStandUp()) { endSlide(true); P.crouch = false; }
+      else if ((P.descT <= 0 && (sp < K.SLIDE_MIN || P.modeT > K.SLIDE_MAX_T * dexF(1.2))) || !B.grounded) { endSlide(false); if (!B.grounded) P.mode = 'air'; }
+      else if (Math.random() < dt * 22) { FX.dust(B.x, B.y, B.z, 1, 1.2, { size: 0.32, a: 0.3 }); }
+    } else if (P.mode === 'dive') {
+      if (P.diveAir) { // airborne: slight drag only
+        const k = Math.exp(-0.35 * dt); B.vx *= k; B.vz *= k;
+        if (B.grounded && P.modeT > 0.08) { P.diveAir = false; P.mode = 'prone'; P.proneT = 0; B.vx *= 0.85; B.vz *= 0.85; snd('dive_land', { isPlayer: true, surface: B.groundMat }); FX.dust(B.x, B.y, B.z, 6, 2.2, { size: 0.6, a: 0.4 }); }
+      }
+    } else if (P.mode === 'prone') {
+      P.proneT += dt; const sp = Math.hypot(B.vx, B.vz);
+      if (sp > 1 && Game.world.surfaceY(B.x + B.vx / sp * 0.55, B.z + B.vz / sp * 0.55, B.y + 0.3) < B.y - 0.06) P.descT = 0.25;   /* skidding down stairs / a slope: no friction until it levels out */
+      if (P.descT > 0 && sp > 1.5) { /* keep sliding */ } else if (sp > K.PRONE * 1.2 || !has) approach(B, 0, 0, sp > 2.5 ? 10 : 16, dt); else approach(B, wx * K.PRONE * wm, wz * K.PRONE * wm, 18, dt);
+      if (sp > 2 && Math.random() < dt * 20) FX.dust(B.x, B.y, B.z, 1, 1.0, { size: 0.3, a: 0.28 });
+      if (P.proneT > K.PRONE_RECOVER && !inp.dive && canCrouchUp() && !(P.descT > 0 && sp > 1.5)) { P.mode = 'ground'; P.modeT = 0; P.crouch = !canStandUp() || !!inp.crouch; P.recoverT = 0.12; }
+      else if (P.proneT > 0.3 && (inp.jumpPressed) && canStandUp()) { P.mode = 'ground'; P.crouch = false; P.recoverT = 0.05; }
+      else if (P.proneT > 0.3 && inp.sprintPressed && canStandUp()) { P.mode = 'ground'; P.modeT = 0; P.crouch = false; P.recoverT = 0; }   /* tapping sprint gets you up and running (no recover delay, so sprint engages at once if you're holding a direction) */
+    }
+
+    // collider height / physics
+    const nh = hFor(P.mode); if (B.h !== nh) { if (nh > B.h) { if (Game.world.canStand(B.x, B.y, B.z, K.R - 0.02, nh, 0.05)) B.h = nh; } else B.h = nh; }
+    const gWas = B.grounded, y0 = B.y; B.landVy = 0; Game.world.moveBody(B, dt, K.GRAV, K.STEP);
+    if ((P.mode === 'slide' || P.mode === 'prone') && gWas && !B.grounded && B.vy <= 0) { const sy = Game.world.surfaceY(B.x, B.z, B.y + 0.05); if (B.y - sy <= 0.7) { B.y = sy; B.vy = 0; B.grounded = true; B.groundY = sy; } }   /* stay glued to stairs / slopes while sliding or skidding */
+    if ((P.mode === 'slide' || P.mode === 'prone') && B.grounded && B.y < y0 - 0.02) P.descT = 0.25;
+    if (B.landVy < -4.2 && !gWas || (B.landVy < -4.2 && B.grounded)) {
+      const hard = B.landVy < -9.5; snd(hard ? 'land_hard' : 'land', { isPlayer: true, surface: B.groundMat }); P.landDipV += clamp(-B.landVy / 9, 0.2, 1.3) * 0.9; FX.dust(B.x, B.y, B.z, hard ? 6 : 3, 1.8, { size: 0.45, a: 0.32 });
+    }
+    if (P.mode === 'air' && B.grounded) { P.mode = 'ground'; P.modeT = 0; if (P.crouch && !inp.crouch && canStandUp()) P.crouch = false; }
+    if (P.mode === 'ground' && !B.grounded && !jumped && B.vy < -2) P.mode = 'air';
+    P.jumpHold = inp.jump; P.pos.x = B.x; P.pos.y = B.y; P.pos.z = B.z; P.hSpeed = Math.hypot(B.vx, B.vz);
+    // footsteps
+    if (B.grounded && P.hSpeed <= 1.2) { P.stepIdle = (P.stepIdle || 0) + dt; if (P.stepIdle > 0.4) { P.stepN = 0; P.stepDist = 0; } }   /* standing still: the next walk starts the loop again from L01 */
+    if (!B.grounded || P.mode !== 'ground') P.stepY = undefined;   /* stair detection compares heights between steps; don't count falls / jumps / mantles */
+    if (B.grounded && (P.mode === 'ground') && P.hSpeed > 1.2) {
+      P.stepIdle = 0; P.stepDist += P.hSpeed * dt; const stride = P.sprinting ? 2.3 : P.crouch ? 3.2 : 2.7;
+      if (P.stepDist > stride) {
+        const mat = STEPMAT[B.groundMat] ? B.groundMat : 'concrete', slope = (B.y - (P.stepY === undefined ? B.y : P.stepY)) / P.stepDist;
+        P.stepDist = 0; P.stepY = B.y; const step = P.stepN = P.stepN || 0; P.stepN++; P.stepIdle = 0;   /* ordered cycle: L01 R01 L02 R02 ... L06 R06, then round again */
+        const kind = Math.abs(slope) > 0.3 ? (slope > 0 ? 'stairup_' : 'stairdown_') + (P.sprinting ? 'run' : 'walk') : P.sprinting ? 'sprint' : 'walk';
+        snd('step_' + kind + '_' + mat + '_' + ((step & 1) ? 'r' : 'l'), { pos: pl(B.x, B.y, B.z), isPlayer: true, gain: P.crouch ? 0.75 : P.sprinting ? 0.95 : 1.3, clip: step >> 1, vary: false });
+      }
+    }
+    /* crawling prone: rustle bed while you actually move (the slide/dive skid into prone has its own sounds); louder and a touch quicker the faster you crawl */
+    { const cs = P.hSpeed / K.PRONE, crawling = P.alive && B.grounded && P.mode === 'prone' && P.hSpeed > 0.3 && cs < 1.3;
+      if (typeof Sound !== 'undefined' && Sound.crawl) Sound.crawl('player', crawling, { isPlayer: true, surface: B.groundMat, gain: 0.35 + 0.65 * clamp(cs, 0, 1), rate: 0.9 + 0.1 * clamp(cs, 0, 1) }); }
+  }
+  function vaultLandingOk(led, dx, dz) {   /* the ground just past the obstacle must not be a big drop below where you stand now */
+    const B = P.body, d = K.R + 0.32 + 0.34 + 0.45, fy = Game.world.surfaceY(B.x + dx * d, B.z + dz * d, led.y + 0.05);
+    return B.y - fy <= K.VAULT_DROP;
+  }
+  function speedVaultOk(led, dx, dz) {   /* a mantle entered while sprinting becomes a speed vault (no climb); at a lower speed only waist-high obstacles with a safe landing */
+    const B = P.body, fwd = B.vx * dx + B.vz * dz;
+    if (P.sprinting || fwd >= K.SPRINT * 0.7) return true;   /* sprinting (or still at sprint speed in the air): never a climb - any height findLedge accepts, any drop beyond */
+    return led.y - B.y <= K.VAULT_MAX && fwd >= K.VAULT_SPEED && vaultLandingOk(led, dx, dz);
+  }
+  function vaulting() { return P.mode === 'mantle' && !!P.mantle && !!P.mantle.vault; }
+  /* one-handed fire mid-vault: same rules as the other one-handed cases (Gung-Ho sprint, grenade throw): any gun except pump / bolt actions and the knife; hipfire only, no ADS, no reload */
+  function vaultFireOK(ws) { return vaulting() && !!ws && ws.cfg.kind !== 'melee' && ws.cfg.mode !== 'PUMP' && ws.cfg.mode !== 'BOLT'; }
+  function startMantleTo(led, dx, dz, vault) {
+    const B = P.body; P.mode = 'mantle'; P.modeT = 0; P.mantle = { t: 0, x0: B.x, y0: B.y, z0: B.z, x1: led.x, y1: led.y, z1: led.z, dx, dz, vault: !!vault, dur: vault ? K.VAULT_T * clamp(0.75 + 0.3 * (led.y - B.y), 1, 1.4) : 0, sp: vault ? clamp(B.vx * dx + B.vz * dz, 3.6, K.SPRINT * 0.9) : 0 }; P.sprinting = false; P.crouch = false; P.ads = 0; if (vault) { P.sprintOut = 0; P.recoverT = 0; } snd('mantle', { isPlayer: true });
+  }
+
+  /* ---------------------------------------------------------------- weapons */
+  function slotOf(ws) { return ws ? ws.cfg.slot : null; }
+  function requestSwitch(to) {
+    if (P.swit || to === P.active || !P.slots[to]) return; const cur = P.slots[P.active], nw = P.slots[to];
+    if (cur) { Weapons.cancelReload(cur); sndW(cur.id, 'holster', { isPlayer: true }); }
+    P.swit = { t: 0, dur: 0.22 + nw.cfg.draw * 0.8, to, done: false }; P.swing = null;
+  }
+  function giveWeapon(ws) {
+    const slot = slotFor(ws.cfg, ws.id), old = P.slots[slot]; P.slots[slot] = ws;
+    if (slot === P.active || !P.slots[P.active]) { if (!P.slots[P.active]) P.active = slot; P.swit = { t: 0, dur: 0.22 + ws.cfg.draw * 0.8, to: slot, done: false }; if (old) Weapons.cancelReload(old); }
+    return old;
+  }
+  function dropActive() {
+    if (P.downed) return null;
+    const ws = P.slots[P.active]; if (!ws || P.swit || ws.cfg.slot === 'melee') return null; Weapons.cancelReload(ws); P.slots[P.active] = null;   /* the knife can't be dropped */
+    let other = P.active === 'primary' ? 'secondary' : 'primary'; if (!P.slots[other]) other = 'melee';
+    if (P.slots[other]) { P.swit = { t: 0, dur: 0.3 + P.slots[other].cfg.draw * 0.6, to: other, done: false }; } else ViewModel.setWeapon(null);
+    return ws;
+  }
+  function ejectCasing(kind, left) {
+    if (!ViewModel.anchorWorld('eject', _e, left)) return; const sy = Math.sin(P.yaw), cy = Math.cos(P.yaw), r = (1.6 + Math.random() * 1.2) * (left ? -1 : 1), u = 1.6 + Math.random() * 1.4;
+    FX.casing(_e.x, _e.y, _e.z, cy * r - sy * 0.3 + P.body.vx * 0.5, u, -sy * r - cy * 0.3 + P.body.vz * 0.5, kind);
+  }
+  function doShot(ws, left) {
+    const cfg = ws.cfg, B = P.body;
+    if (!Weapons.fire(ws)) return;
+    P.protect = 0; UI.hud.setSpawnProtection(false); P.sinceShot = 0; P.fireBuf = 0;
+    const vlt = vaulting(), ctx = { ads: P.ads, move: clamp((vlt ? P.mantle.sp : P.hSpeed) / 8.5, 0, 1.2), air: !B.grounded && !vlt, crouch: P.crouch, player: true }, sp = Weapons.spreadDeg(ws, ctx);
+    P.spreadNow = sp;
+    const ex = B.x, ey = P.eyeY, ez = B.z, cp = Math.cos(P.pitch), dx = -Math.sin(P.yaw) * cp, dy = Math.sin(P.pitch), dz = -Math.cos(P.yaw) * cp;
+    let fdx = dx, fdy = dy, fdz = dz;
+    if (P.tpOn && legs) {
+      /* third person: shoot from the eye at whatever the (offset) camera's crosshair is pointing at, and show the shot from the soldier's own muzzle */
+      const cm = Game.camera, W = Game.world; _e.set(0, 0, -1).applyQuaternion(cm.quaternion);
+      let tt = 300; if (W.raycast(cm.position.x, cm.position.y, cm.position.z, _e.x, _e.y, _e.z, 300)) tt = Math.max(W.hit.t, 3);
+      const ax = cm.position.x + _e.x * tt - ex, ay = cm.position.y + _e.y * tt - ey, az = cm.position.z + _e.z * tt - ez, al = Math.hypot(ax, ay, az) || 1;
+      fdx = ax / al; fdy = ay / al; fdz = az / al;
+      legs.s.shoot(!!left); legs.s.getMuzzle(_m, _e, !!left);
+    } else ViewModel.anchorWorld('muzzle', _m, left);
+    Combat.fire(P, ws, ex, ey, ez, fdx, fdy, fdz, { muzzle: _m, spread: sp, tracer: !cfg.auto || (ws.shots & 1) === 0 });
+    sndW(ws.id, 'fire', cfg.snd ? { isPlayer: true, pos: pl(ex, ey, ez), gain: cfg.snd[0], lp: cfg.snd[1] } : { isPlayer: true, pos: pl(ex, ey, ez) }); ViewModel.fire(cfg, left);
+    /* Lightweight perk: a sniper or shotgun fired in mid-air kicks you opposite to the shot - shoot down to launch upward, behind you to fly forward */
+    if (P.perks && P.perks.lightweight && !B.grounded && P.mode !== 'mantle' && (cfg.kind === 'shotgun' || cfg.kind === 'sniper')) {
+      const kick = cfg.kind === 'sniper' ? 10 : 7.5;
+      B.vx -= fdx * kick; B.vy -= fdy * kick; B.vz -= fdz * kick;
+      const hsp = Math.hypot(B.vx, B.vz); if (hsp > 16) { B.vx *= 16 / hsp; B.vz *= 16 / hsp; }
+      B.vy = clamp(B.vy, -24, 11.5);
+    }
+    FX.smoke(_m.x, _m.y, _m.z, dx * 0.6, 0.25, dz * 0.6, 0.28, 0.12);
+    // recoil (pattern + random), applied to the view
+    const k = Weapons.recoilKick(ws, P.ads), hs = cfg.recoil.length === 1 ? (Math.random() < 0.5 ? -1 : 1) : 1, akS = cfg.akimbo ? 0.8 : 1, kv = k.v * akS * D2R, kh = k.h * hs * akS * D2R;
+    P.pitch = clamp(P.pitch + kv, -1.52, 1.52); P.yaw += kh; P.recAccV += kv; P.recAccH += kh; P.shake = Math.min(1, P.shake + (0.25 + cfg.kickRot) * (cfg.stab || 1)); if (cfg.id === 'm4') { P.rlPV -= 0.1; P.rlRV += (Math.random() - 0.5) * 0.3; P.rlYV += (Math.random() - 0.5) * 0.12; }   /* M4: every shot thumps the view */
+    if (cfg.kind !== 'shotgun' && cfg.kind !== 'sniper') ejectCasing(cfg.kind === 'pistol' ? 1 : 0, left);
+    Bots.noise(B.x, B.z, 42 * (cfg.noise === undefined ? 1 : cfg.noise), P);   /* suppressors / silent builds: bots hear you from less far away */
+    if (ws.mag === 0 && ws.reserve > 0) { P.autoReloadT = 0.45; ws.autoT = 0.45; }
+  }
+
+  /* ---- knife: a swing starts on fire (hold to chain), the blade connects partway through it ---- */
+  /* v70: camera beats for a knife attack. stage 0 = wind-up (coil back), 1 = the slash / thrust (whip + lunge + FOV punch), 2 = the blade lands (slam), 3 = it only finds air or a wall.
+     k = swing kind (0 forehand, 1 backhand, 2 stab). All of it is impulses into the view springs (rlP / rlR / rlY, lg, fk) plus a fast-decaying hard shake (kShake). */
+  function knifeCam(stage, k, r) {
+    const d = k === 0 ? 1 : k === 1 ? -1 : 0, j = 0.85 + Math.random() * 0.3, rs = Math.random() < 0.5 ? -1 : 1;
+    if (stage === 0) { P.rlYV -= d * 0.7; P.rlRV -= d * 1.1; P.rlPV += d ? 0.5 : 0.9; P.lgV -= d ? 0.8 : 1.4; P.fkV -= 0.5; }
+    else if (stage === 1) {
+      if (d) { P.rlYV += d * 3.4 * j; P.rlRV += d * 3.0 * j; P.rlPV -= 1.2 * j; P.lgV += 2.4 * j; }
+      else { P.rlPV -= 2.6 * j; P.rlRV += rs * 1.2 * j; P.lgV += 4.4 * j; }
+      P.fkV += 1.1; P.kShake = Math.min(1.6, P.kShake + 0.3); P.shake = Math.min(1, P.shake + 0.15);
+    } else if (stage === 2) {
+      const m = (r.kill ? 1.35 : 1) * (r.head ? 1.15 : 1);
+      P.rlPV -= 3.2 * m; P.rlRV -= d ? d * 2.4 * m : rs * 2.4 * m; P.rlYV -= d * 1.6 * m; P.lgV -= 3.0 * m; P.fkV -= 1.6 * m;
+      P.kShake = Math.min(1.6, P.kShake + 1.0 * m); P.shake = 1;
+    } else { P.rlPV -= r.world ? 1.7 : 0.6; P.rlRV += rs * (r.world ? 1.2 : 0.4); P.lgV -= r.world ? 1.8 : 0.4; P.kShake = Math.min(1.6, P.kShake + (r.world ? 0.55 : 0.12)); if (r.world) P.shake = Math.min(1, P.shake + 0.3); }
+  }
+  function knifeStrike(ws, k) {
+    const B = P.body, cp = Math.cos(P.pitch), dx = -Math.sin(P.yaw) * cp, dy = Math.sin(P.pitch), dz = -Math.cos(P.yaw) * cp;
+    const r = Combat.melee(P, ws, B.x, P.eyeY, B.z, dx, dy, dz);
+    if (r.hit) { P.shake = Math.min(1, P.shake + 0.35); knifeCam(2, k, r); ViewModel.hitStop(r.kill ? 0.11 : 0.07); } else knifeCam(3, k, r);
+  }
+  function meleeAttack(dt, inp, ws, switching) {
+    const mc = ws.cfg.melee, ins = P.ins;
+    if (ins.on) { ins.t += dt; if (ins.t >= ins.dur || P.swing || inp.fire || inp.firePressed || inp.ads || P.sprinting || P.sprintOut > 0 || switching || P.mode === 'mantle' || P.mode === 'dive' || P.recoverT > 0) ins.on = false; }   /* F inspect: any combat action or sprint cancels it */
+    else if (inp.inspect && !P.swing && !switching && !P.sprinting && P.sprintOut <= 0 && P.mode !== 'mantle' && P.mode !== 'dive' && P.recoverT <= 0) { ins.on = true; ins.t = 0; ins.dur = ViewModel.inspect.dur; }
+    if (P.swing) { const sw = P.swing; sw.t += dt; if (!sw.sl && sw.t >= 0.16) { sw.sl = true; knifeCam(1, sw.k); } if (!sw.hit && sw.t >= mc.hit) { sw.hit = true; knifeStrike(ws, sw.k); } if (sw.t >= mc.swing) P.swing = null; }
+    if ((inp.firePressed || inp.fire) && !P.swing && ws.cool <= 0 && !switching && P.mode !== 'mantle' && P.sprintOut <= 0 && P.recoverT <= 0) {
+      ws.cool = ws.cfg.interval; P.swingN = (P.swingN | 0) + 1; P.swing = { t: 0, hit: false, sl: false, k: (P.swingN + 2) % 3 }; P.protect = 0; UI.hud.setSpawnProtection(false); P.sinceShot = 0;
+      ViewModel.swing(P.swing.k, mc.swing); knifeCam(0, P.swing.k); snd('knife_swing', { isPlayer: true }); Bots.noise(P.body.x, P.body.z, 9, P);
+      if (P.tpOn && legs) legs.s.shoot();
+    }
+  }
+
+  /* ---- AKIMBO perk (pistols): LEFT click fires the left gun, RIGHT click the right gun. Each gun has its own magazine and the reserve is shared.
+     Reload: neither trigger down -> both guns that are short reload; one trigger down -> only the other gun reloads. A gun that runs dry reloads by itself. ---- */
+  function akLeft(ws) {
+    if (ws.akL) return ws.akL;
+    const L = Weapons.newState(ws.id, { cfg: ws.cfg, mag: ws.cfg.magMax });
+    delete L.reserve; Object.defineProperty(L, 'reserve', { get() { return ws.reserve; }, set(v) { ws.reserve = v; }, enumerable: true, configurable: true });
+    ws.akL = L; return L;
+  }
+  function akimboWeapons(dt, inp, R, cfg, switching, fireOk, canRl, thrBusy) {
+    const L = akLeft(R); P.autoReloadT = 0; P.fireBuf = 0; P.burstLeft = 0;
+    const lHeld = !!inp.fire, rHeld = !!inp.akR, shooting = (g, held) => held || g.idle < 0.12;
+    if (inp.reload && !switching && canRl) {
+      const need = (g) => g.mag < g.cfg.magMax && g.reserve > 0 && !g.reload, lS = shooting(L, lHeld), rS = shooting(R, rHeld);
+      if (!lS && !rS) { if (need(L)) Weapons.startReload(L); if (need(R)) Weapons.startReload(R); }
+      else if (lS && !rS) { if (need(R)) Weapons.startReload(R); }
+      else if (rS && !lS) { if (need(L)) Weapons.startReload(L); }
+    }
+    for (const g of [R, L]) if (g.autoT > 0) { g.autoT -= dt; if (g.autoT <= 0 && !switching && !g.reload && g.mag === 0 && g.reserve > 0) { if (canRl) Weapons.startReload(g); else g.autoT = 0.1; } }
+    const vOK = P.mode !== 'mantle' || vaultFireOK(R), burstN = cfg.burst | 0;
+    const gun = (g, held, pressed, ok, left) => {
+      if (pressed) g.fbuf = 0.2; else g.fbuf = Math.max(0, (g.fbuf || 0) - dt);
+      if (!burstN || g.reload || g.mag <= 0 || switching) g.bl = 0;
+      const want = burstN ? ((g.bl || 0) > 0 || g.fbuf > 0) : cfg.auto ? held : g.fbuf > 0;
+      if (!want || !ok || !vOK || P.sprintOut > 0 || P.recoverT > 0) return;
+      if (g.mag <= 0) { if (pressed && !g.reload) { sndW(g.id, 'dry', { isPlayer: true }); if (g.reserve > 0 && canRl && !thrBusy) Weapons.startReload(g); } g.fbuf = 0; return; }
+      if (Weapons.canFire(g)) { const first = !(burstN && g.bl > 0); doShot(g, left); g.fbuf = 0; if (burstN) { g.bl = first ? burstN - 1 : g.bl - 1; if (g.bl <= 0) g.cool = Math.max(g.cool, cfg.interval * 2.4); } }
+    };
+    gun(L, lHeld, !!inp.firePressed, fireOk && !thrBusy, true);
+    gun(R, rHeld, !!inp.akRP, fireOk, false);
+  }
+
+  function weapons(dt, inp) {
+    const cur = P.slots[P.active];
+    // timers for both slots (cues only for the active weapon)
+    for (const sl of ['primary', 'secondary', 'melee']) {
+      const w = P.slots[sl]; if (!w) continue; w.airHold = !P.body.grounded;
+      Weapons.update(w, dt, w === cur ? (name) => {
+        sndW(w.id, name, { isPlayer: true });
+        if (name === 'pumpback' && w.cfg.kind === 'shotgun') ejectCasing(2); else if (name === 'boltback' && w.cfg.kind === 'sniper') ejectCasing(0);
+      } : null);
+    }
+    // switching
+    if (P.swit) {
+      P.swit.t += dt; const p = P.swit.t / P.swit.dur;
+      if (p >= 0.5 && !P.swit.done) { P.swit.done = true; P.active = P.swit.to; const nw = P.slots[P.active]; ViewModel.setWeapon(nw ? nw.id : null, nw); if (nw) sndW(nw.id, 'draw', { isPlayer: true }); }
+      if (p >= 1) P.swit = null;
+    } else {
+      if (!cur && (P.slots.primary || P.slots.secondary || P.slots.melee)) requestSwitch(P.slots.primary ? 'primary' : P.slots.secondary ? 'secondary' : 'melee');
+      if (inp.slot1) requestSwitch('primary'); if (inp.slot2) requestSwitch('secondary'); if (inp.slot3) requestSwitch('melee');
+      if (inp.wheel) requestSwitch(P.active === 'primary' ? 'secondary' : 'primary');
+    }
+    const ws = P.slots[P.active], cfg = ws && ws.cfg, switching = (!!P.swit && !P.swit.done ? true : !!P.swit) || P.throwT > 0;
+    /* throwing is left-handed: the right hand keeps the gun, so one-handed weapons can still be hipfired mid-throw (not pump / bolt actions; no ADS, no reload) */
+    const thrBusy = P.throwT > 0, fireOk = !P.swit && !(thrBusy && cfg && (cfg.mode === 'PUMP' || cfg.mode === 'BOLT'));
+    // ADS
+    const canAds = ws && cfg.kind !== 'melee' && !switching && (!ws.reload || ws.id === 'm4') && P.mode !== 'mantle' && !P.sprinting && P.recoverT <= 0;
+    const akOn = !!(ws && cfg.akimbo && cfg.kind === 'pistol'); P.akOn = akOn; const adsT = inp.ads && canAds && !akOn ? 1 : 0, before = P.ads;
+    if (cfg) { const rate = 1 / Math.max(0.08, cfg.adsTime); P.ads = clamp(P.ads + clamp(adsT - P.ads, -rate * dt * 1.6, rate * dt), 0, 1); } else P.ads = 0;
+    if (inp.ads && P.sprinting) { P.sprinting = false; P.sprintOut = 0.12 * ((cfg && cfg.sprintOutMul) || 1); }
+    if (cfg && cfg.scope) { const sc = P.ads > 0.55 ? 1 : 0; if (sc !== P.scopeState) { P.scopeState = sc; sndW(ws.id, sc ? 'scopein' : 'scopeout', { isPlayer: true }); } }
+    { const swv = cfg ? Math.max(0, cfg.sway - 1) : 0, amp = swv * P.ads * 0.02 * (cfg && cfg.scope ? 1.6 : 0.8), tt = Game.time, dyw = Math.sin(tt * 0.9 + 0.4) * amp, dpt = Math.sin(tt * 1.15 + 2.1) * amp * 0.8; if (amp > 0 || P._swY || P._swP) { P.yaw += dyw - (P._swY || 0); P.pitch = clamp(P.pitch + dpt - (P._swP || 0), -1.52, 1.52); P._swY = dyw; P._swP = dpt; } }
+    if (!ws) return;
+    if (cfg.kind === 'melee') { meleeAttack(dt, inp, ws, switching); return; }
+    P.swing = null; P.ins.on = false;
+    // reload
+    const canRl = P.mode !== 'dive' && P.mode !== 'mantle'; /* no reloading during a dolphin dive */
+    if (akOn) { akimboWeapons(dt, inp, ws, cfg, switching, fireOk, canRl, thrBusy); return; }
+    if (inp.reload && !switching && P.mode !== 'mantle' && canRl) { if (Weapons.startReload(ws)) { P.autoReloadT = 0; } }
+    if (P.autoReloadT > 0) { P.autoReloadT -= dt; if (P.autoReloadT <= 0 && !switching && !ws.reload && ws.mag === 0) { if (canRl) Weapons.startReload(ws); else P.autoReloadT = 0.1; } }
+    // fire
+    if (inp.firePressed) P.fireBuf = 0.2; else P.fireBuf = Math.max(0, P.fireBuf - dt);
+    const burstN = cfg.burst | 0; if (!burstN || ws.reload || ws.mag <= 0 || switching) P.burstLeft = 0;
+    const want = burstN ? (P.burstLeft > 0 || P.fireBuf > 0) : cfg.auto ? inp.fire : P.fireBuf > 0 && (inp.fire || inp.firePressed || P.fireBuf > 0);
+    if (want && fireOk && (P.mode !== 'mantle' || vaultFireOK(ws))) {
+      if (P.sprintOut > 0 || P.recoverT > 0) { /* sprint-out delay */ }
+      else if (ws.mag <= 0) { if (inp.firePressed && !ws.reload) { sndW(ws.id, 'dry', { isPlayer: true }); if (ws.reserve > 0 && canRl && !thrBusy) Weapons.startReload(ws); } P.fireBuf = 0; }
+      else if (Weapons.canFire(ws)) { const first = !(burstN && P.burstLeft > 0); doShot(ws); if (burstN) { P.burstLeft = first ? burstN - 1 : P.burstLeft - 1; if (P.burstLeft <= 0) ws.cool = Math.max(ws.cool, cfg.interval * 2.4); } }
+    }
+  }
+
+  /* ---------------------------------------------------------------- first-person legs
+     A full soldier body lives in the world scene; legs, pelvis and torso are drawn (head + arms are invisible shadow casters),
+     so looking down, sprinting, sliding or dolphin-diving shows your own legs (and your shadow on the ground).
+     Body yaw follows the look direction, or the travel direction while sliding / diving (so a backwards dive throws your legs out in front of you).
+     The body is anchored so its head sits exactly at the camera. */
+  const LEG_PARTS = { hips: 1, spine: 1, chest: 1, th: 1, sh: 1, ft: 1 };   /* head, arms and team marker stay invisible: the viewmodel already draws the arms, and the head must never block the camera */
+  const _lEye = new THREE.Vector3(), _lGhost = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });
+  const LEG_LEAN = 0.3, LEG_AHEAD = 0.16, LEG_SCALE = 1.07, LEG_BACK = 0.3;   /* tune: backward lean (rad), how far ahead of the camera the feet stand (m), leg length scale */
+
+  let legs = null;
+  function resetLegs() { if (legs) { if (legs.root.parent) legs.root.parent.remove(legs.root); legs = null; } }
+  function ensureLegs() {
+
+    if (!legs) {
+      const kit = SoldierModel.playerKit(), sol = SoldierModel.create({ team: kit.team, variant: kit.variant });
+      let mat = null; const meshes = [];
+      sol.root.traverse((o) => {
+        if (!o.isMesh) return;
+        o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; o.userData.om = o.material; meshes.push(o);
+        if (LEG_PARTS[o.name]) { if (!mat) { mat = o.material.clone(); mat.side = THREE.DoubleSide; } o.material = mat; } else o.material = _lGhost;
+      });
+      legs = { s: sol, root: sol.root, mat, meshes, tp: false, yaw: 0, shade: 1, ready: false, loco: { speed: 0, moveAngle: 0, sprint: false, aim: 0, crouch: 0, grounded: true, vy: 0, pitch: 0, slide: false, dive: false } };
+    }
+    if (legs.root.parent !== Game.scene) Game.scene.add(legs.root);
+    return legs;
+  }
+  function updateLegs(dt, inp) {
+    const L = ensureLegs(), B = P.body, cam = Game.camera, mode = P.mode, kd = (r) => 1 - Math.exp(-r * dt);
+    const sliding = mode === 'slide', diving = mode === 'dive', prone = mode === 'prone', hs = Math.hypot(B.vx, B.vz);
+    /* body heading: follows the look direction while upright / diving (running backwards is already a backwards run). Lying prone the heading is held in place:
+       turning the view half-rolls the body toward where you look, and only past ~70 degrees does the body get dragged round. */
+    if (L.psi === undefined) L.psi = P.yaw;
+    if (prone) {
+      /* the body stays where it lies and rolls with the view: the roll angle IS the accumulated turn (unwrapped), so after half a turn you are over on your other side
+         and after a full turn you are back where you started - no heading change, no snap. Crawling brings the body back in line with the view (and unwinds the roll). */
+      if (!L.wasProne) { L.yawAcc = 0; L.pyaw = P.yaw; }
+      const dy = U.wrapPI(P.yaw - (L.pyaw === undefined ? P.yaw : L.pyaw)); L.pyaw = P.yaw;
+      L.yawAcc = (L.yawAcc || 0) + dy;
+      if (hs > 0.8) { const dl = U.wrapPI(P.yaw - L.psi) * (1 - Math.exp(-3 * dt)); L.psi += dl; L.yawAcc = U.wrapPI(L.yawAcc - dl); }
+      L.rollT = L.yawAcc;
+    }
+    else { L.rollT = 0; if (L.wasProne) L.rollA = U.wrapPI(L.rollA || 0); if (diving) L.psi = P.yaw; else L.psi += U.wrapPI(P.yaw - L.psi) * (1 - Math.exp(-24 * dt)); }
+    L.wasProne = prone; L.flip = 0;
+    L.yaw = L.psi;
+    L.rollA = (L.rollA || 0) + ((L.rollT || 0) - (L.rollA || 0)) * kd(12);
+    L.flipA = 0;
+    const c = Math.cos(L.yaw), sn = Math.sin(L.yaw), l = L.loco;
+    l.speed = hs; l.moveAngle = hs > 0.2 ? Math.atan2(B.vx * c - B.vz * sn, -(B.vx * sn + B.vz * c)) : 0;
+    l.sprint = P.sprinting; l.gh = P.sprinting && ghOK(P.slots[P.active]) ? 1 : 0; l.aim = P.ads; l.crouch = P.crouch ? 1 : 0; l.grounded = B.grounded; l.vy = B.vy; l.pitch = 0; l.slide = sliding; l.dive = diving || prone;
+    /* travel direction of the dive / slide in the body's own frame (latched while prone so you stay on your back / front after landing) */
+    if (!L.dd) { L.dd = [0, -1]; L.sd = [0, -1]; }
+    if (diving && hs > 0.6) { let ux = (B.vx * c - B.vz * sn) / hs, uz = (B.vx * sn + B.vz * c) / hs; if (Math.abs(ux) < 0.4) ux = 0; if (Math.abs(uz) < 0.4) uz = 0; const un = Math.hypot(ux, uz) || 1; L.dd[0] = ux / un; L.dd[1] = uz / un; }   /* near-straight dives snap to straight so the legs don't hang diagonally */ else if (!diving && !prone) { L.dd[0] = 0; L.dd[1] = -1; }
+    else if (prone && inp) {
+      const f = (inp.fwd ? 1 : 0) - (inp.back ? 1 : 0);
+      if (L.prevSliding) {
+        /* slid into prone: head trails, feet lead the slide direction. forward slide -> on your back, backward slide -> belly down, sideways slide -> lying along the slide direction (feet leading) with the chest still turned toward where you look: half-rolled toward supine */
+        let ux = -L.sd[0], uz = -L.sd[1]; L.fromSlide = true; if (Math.abs(ux) < 0.4) ux = 0; if (Math.abs(uz) < 0.4) uz = 0; const un = Math.hypot(ux, uz) || 1; L.dd[0] = ux / un; L.dd[1] = uz / un;
+        L.hold = f;   /* the W/S key still held from steering the slide must not flip you over instantly */
+      } else if (L.hold !== undefined) { if (f !== L.hold) L.hold = undefined; }
+      if (L.hold === undefined) { if (f > 0) { L.dd[0] = 0; L.dd[1] = -1; } else if (f < 0) { L.dd[0] = 0; L.dd[1] = 1; } }
+    }
+    if (P.downed && prone) { L.dd[0] = 0; L.dd[1] = 1; L.hold = undefined; L.fromSlide = false; }   /* downed: always lying on your back, whatever keys you press or how you went down */
+    if (!prone) { L.hold = undefined; L.fromSlide = false; } L.prevSliding = sliding;   /* prone: forward = belly-down, back = on your back; side keys keep whichever you're in */
+    if (sliding) { L.sd[0] = P.slideDirX * c - P.slideDirZ * sn; L.sd[1] = P.slideDirX * sn + P.slideDirZ * c; }
+    l.ddx = L.dd[0]; l.ddz = L.dd[1]; l.sdx = L.sd[0]; l.sdz = L.sd[1]; if (L.pdd !== undefined && L.pdd !== L.dd[1]) { L.flip = 0; L.flipA = 0; } L.pdd = L.dd[1];   /* a new facing latched by the move keys replaces the roll-over */
+    L.rbA = (L.rbA || 0) + (((prone && L.fromSlide) ? 0.8 * L.dd[0] : 0) - (L.rbA || 0)) * kd(10);   /* sideways slide into prone: roll the body half way over toward its back while the view stays forward */
+    l.roll = L.rollA + L.flipA + L.rbA;
+    /* third-person cheat: the whole soldier is shown (real materials, head and arms included), holding the active weapon, standing exactly where the body is */
+    const tp = !!Game.settings.thirdPerson;
+    if (tp !== L.tp) {
+      L.tp = tp;
+      for (let i = 0; i < L.meshes.length; i++) { const o = L.meshes[i]; o.material = tp ? o.userData.om : (LEG_PARTS[o.name] ? L.mat : _lGhost); }
+      if (L.s.bones.wpn) L.s.bones.wpn.visible = tp;
+      L.curW = null;
+    }
+    if (tp) {
+      const ws = P.slots[P.active];
+      if (ws) { const wk = ws.id + '|' + (ws.cfg.key || ''); if (L.curW !== wk) { L.curW = wk; L.s.equip(ws.id, ws.cfg.att); L.relOn = false; } if (ws.reload && !L.relOn) L.s.reload(ws.reload.dur, ws.reload.empty, false); L.relOn = !!ws.reload; { const al = ws.akL; if (al && al.reload && !L.relOnL) L.s.reload(al.reload.dur, al.reload.empty, true); L.relOnL = !!(al && al.reload); } }
+      l.pitch = P.pitch; l.aim = Math.max(P.ads, P.sinceShot < 1.2 ? 0.3 : 0.12);
+      L.root.rotation.order = 'YXZ'; L.root.scale.setScalar(1); L.root.visible = true; L.root.rotation.set(0, L.yaw, 0); L.root.position.set(B.x, B.y, B.z);
+      L.s.update(dt, l); L.mat.color.setScalar(1);
+      return;
+    }
+    /* standing / walking / air: legs are pushed behind the camera and the body leans back (feet stay planted just ahead of you), so you never look into your own torso.
+       sliding / diving: the body is anchored by its head, pushed back along its own length so the neck sits behind the camera and the camera looks over the body. */
+    L.dw = (L.dw || 0) + ((diving || prone ? 1 : 0) - (L.dw || 0)) * kd(12); L.sl = (L.sl || 0) + ((sliding ? 1 : 0) - (L.sl || 0)) * kd(12);
+    const sw = sliding || diving || prone ? 1 : 0; L.sw = (L.sw || 0) + (sw - (L.sw || 0)) * kd(10);
+    const lean = LEG_LEAN * (1 - L.sw);
+    L.root.rotation.order = 'YXZ'; L.root.scale.setScalar(LEG_SCALE);
+    L.root.visible = true; L.root.position.set(B.x, B.y, B.z); L.root.rotation.set(lean, L.yaw, 0);
+    L.s.update(dt, l);
+    L.root.updateMatrixWorld(true); L.s.getEye(_lEye);
+    /* front-loaded copies of the blend weights: the camera drops into the dive faster than the body pitches over, so the push-back / drop must lead the pose or the neck briefly passes through the camera */
+    const dwE = 1 - Math.pow(1 - Math.min(1, L.dw), 3), slE = 1 - Math.pow(1 - Math.min(1, L.sl), 3);
+    const hdx = L.dd[0] * c + L.dd[1] * sn, hdz = -L.dd[0] * sn + L.dd[1] * c, hsx = -(L.sd[0] * c + L.sd[1] * sn), hsz = -(-L.sd[0] * sn + L.sd[1] * c);   /* world-space head direction while diving / sliding */
+    const ax = B.x + (cam.position.x - _lEye.x) - (dwE * hdx + slE * hsx) * LEG_BACK, az = B.z + (cam.position.z - _lEye.z) - (dwE * hdz + slE * hsz) * LEG_BACK;          /* head-anchored position */
+    const fx = cam.position.x - Math.sin(L.yaw) * LEG_AHEAD, fz = cam.position.z - Math.cos(L.yaw) * LEG_AHEAD;  /* feet slightly ahead of the camera */
+    L.root.position.x = fx + (ax - fx) * L.sw; L.root.position.z = fz + (az - fz) * L.sw; L.root.position.y = B.y - 0.04 * L.sw - 0.3 * dwE - 0.26 * slE;   /* while diving / prone / sliding the body lies below the camera: you look over it, never into it (slide drop keeps the neck out of view) */
+    L.shade += ((P.shadeV === undefined ? 1 : P.shadeV) - L.shade) * kd(6); L.mat.color.setScalar(0.32 + 0.68 * L.shade);
+  }
+
+  /* ---------------------------------------------------------------- camera + HUD */
+  function camera(dt, inp) {
+    const B = P.body, cam = Game.camera, ws = P.slots[P.active], cfg = ws && ws.cfg, kd = (r) => 1 - Math.exp(-r * dt);
+    const te = P.mode === 'slide' ? K.EYE_SLIDE : (P.mode === 'dive' && P.diveAir) ? K.DIVE_EYE : (P.mode === 'dive' || P.mode === 'prone') ? K.EYE_PRONE : P.crouch ? K.EYE_CROUCH : K.EYE_STAND;
+    P.eyeH += (te - P.eyeH) * kd(P.mode === 'dive' ? 20 : 13);
+    P.landDipV += (-120 * P.landDip - 16 * P.landDipV) * dt; P.landDip += P.landDipV * dt;
+    let mdip = 0; if (P.mode === 'mantle' && P.mantle) mdip = Math.sin(Math.min(1, P.mantle.t) * Math.PI) * 0.18;
+    const bobAmp = B.grounded && P.mode === 'ground' ? clamp(P.hSpeed / 8.5, 0, 1) * (1 - 0.85 * P.ads) : 0; P.bobT += dt * (6 + 4 * (P.sprinting ? 1 : 0)) * (B.grounded ? clamp(P.hSpeed / 6.5, 0, 1.5) : 0);
+    const bobY = Math.sin(P.bobT * 2) * 0.022 * bobAmp, bobX = Math.sin(P.bobT) * 0.012 * bobAmp;
+    P.eyeY = B.y + P.eyeH + P.landDip * 0.5 - mdip + bobY;
+    const sx = (inp.right ? 1 : 0) - (inp.left ? 1 : 0), rollT = -sx * 0.014 * clamp(P.hSpeed / 7.8, 0, 1) + (P.mode === 'slide' ? 0.05 : 0) + (P.mode === 'mantle' ? 0.03 : 0)
+      /* dolphin dive: roll the camera into the dive — sideways dives (left/right of where you look) tilt the view, straight dives don't */
+      + (P.mode === 'dive' ? -clamp((B.vx * Math.cos(P.yaw) - B.vz * Math.sin(P.yaw)) / Math.max(P.hSpeed, 0.001), -1, 1) * 0.42 * ss(0, 0.12, P.modeT) : 0);
+    P.roll += (rollT - P.roll) * kd(9);
+    // FOV: setting is horizontal degrees; ADS zooms by cfg.zoom
+    const aspect = Math.max(1.15, cam.aspect), hf = (Game.settings.fov || 90) * D2R, vt = Math.tan(hf / 2) / aspect;
+    const zoom = cfg ? lerp(1, cfg.zoom, cfg.scope ? ss(0, 1, ss(0.05, 1, P.ads)) : ss(0, 1, P.ads)) : 1, widen = 1 + (P.sprinting ? 0.05 : 0) + (P.mode === 'dive' ? 0.07 : 0) + (P.mode === 'slide' ? 0.04 : 0) + clamp(P.fk, -0.12, 0.16);   /* fk: knife FOV punch */
+    P.fovTan = vt * widen / zoom; P.baseTan = vt; P.sensK = 1 / zoom;   /* look sens follows ADS zoom only, not the sprint/dive/slide FOV widening */ P.fovTan += (P.fovTan - P.fovTan) * 0; const tv = P.fovTan;
+    const fov = 2 * Math.atan(tv) * 180 / Math.PI; if (Math.abs(cam.fov - fov) > 0.01) { cam.fov = fov; cam.updateProjectionMatrix(); }
+    { /* M4 handling camera: the eyes drop to the mag well during a reload, and each beat (release, strip, seat, rack, slam) thumps the view; stiff, fast springs so it reads as solid */
+      const rl = ws && ws.id === 'm4' && ws.reload, ad = 1 - 0.75 * clamp(P.ads, 0, 1); let tp = 0, tr = 0, ty = 0;
+      if (rl) {
+        const u = clamp(rl.t / rl.dur, 0, 1), e = rl.empty ? 1 : 0, env = ss(0.02, 0.14, u) * (1 - ss(e ? 0.92 : 0.8, e ? 1 : 0.97, u)), pv = P.rlPrev;
+        tp = -0.034 * env * ad; tr = -0.014 * env * ad; ty = 0.012 * env * ad;
+        const hit = (b, p, rr, y, k) => { if (pv < b && u >= b) { P.rlPV += p * ad; P.rlRV += rr * ad; P.rlYV += y * ad; P.shake = Math.min(1, P.shake + k); } };
+        if (ws.cfg.tacRld) {   /* Sleight of Hand tactical swap: grab, release, strip, seat (and bolt-release slap when empty) */
+          hit(0.19, -0.2, 0.15, 0.05, 0.02); hit(0.4, -0.35, 0.25, 0.1, 0.04); hit(0.5, -0.15, 0.1, 0, 0.02);
+          hit(0.73, -0.8, 0.5, 0.15, 0.12); hit(0.78, 0.3, -0.2, 0, 0.03);
+          if (e) { hit(0.42, -0.2, 0.3, 0.2, 0.05); hit(0.51, 0.25, -0.5, -0.3, 0.12); hit(0.84, -0.5, 0.3, 0.1, 0.1); }   /* empty: swing left, whip right, bolt-catch slap */
+        } else {
+          hit(0.145, -0.35, 0.25, 0.1, 0.03); hit(0.25, -0.3, -0.3, -0.12, 0.04); hit(0.5, -0.15, 0.1, 0, 0.02);
+          hit(0.74, -0.8, 0.5, 0.15, 0.12); hit(0.78, 0.3, -0.2, 0, 0.03);
+          if (e) { hit(0.885, 0.4, -0.3, -0.2, 0.05); hit(0.915, -0.6, 0.35, 0.1, 0.1); }
+        }
+        P.rlPrev = u;
+      } else if (P.ins.on && P.alive && ws && ws.id === 'knife') {   /* knife inspect: the eyes follow the knife; every toss and catch thumps the view (stronger than the M4 reload) */
+        const u = clamp(P.ins.t / P.ins.dur, 0, 1), I = ViewModel.inspect, o = P._insC || (P._insC = { p: 0, y: 0, r: 0 }), pv = P.rlPrev; I.cam(u, o); tp = o.p; ty = o.y; tr = o.r;
+        for (const b of I.beats) if (pv < b.u && u >= b.u) { P.rlPV += b.p; P.rlRV += b.r; P.rlYV += b.y; P.shake = Math.min(1, P.shake + b.k); if (b.w) snd('knife_swing', { isPlayer: true }); }
+        P.rlPrev = u;
+      } else P.rlPrev = 0;
+      const n = Math.max(1, Math.ceil(dt / 0.01)), h = dt / n;
+      for (let i = 0; i < n; i++) {
+        P.rlPV += (300 * (tp - P.rlP) - 18 * P.rlPV) * h; P.rlP += P.rlPV * h;
+        P.rlRV += (300 * (tr - P.rlR) - 18 * P.rlRV) * h; P.rlR += P.rlRV * h;
+        P.rlYV += (300 * (ty - P.rlY) - 18 * P.rlYV) * h; P.rlY += P.rlYV * h;
+        P.lgV += (260 * (0 - P.lg) - 17 * P.lgV) * h; P.lg += P.lgV * h;   /* knife: body lunge (forward / back) */
+        P.fkV += (220 * (0 - P.fk) - 15 * P.fkV) * h; P.fk += P.fkV * h;   /* knife: FOV punch */
+      }
+    }
+    const sh = P.shake * 0.0025 + P.kShake * 0.016, rx = (Math.random() - 0.5) * sh, ry = (Math.random() - 0.5) * sh, rzs = (Math.random() - 0.5) * P.kShake * 0.05;
+    const diveP = 0; /* dive no longer tilts the camera downward */
+    const lg = clamp(P.lg, -0.25, 0.17);   /* knife lunge: the eyes surge along the look direction */

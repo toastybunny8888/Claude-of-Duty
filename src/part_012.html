@@ -1,0 +1,621 @@
+  const FH_S = new V3(-0.28, -0.35, -0.44), FH_D = new V3(-0.27, -0.30, -0.60), FPN_S = new V3(0.15, -0.9, -0.4).normalize(), FPN_D = new V3(0.6, -0.2, -0.8).normalize(), _fh = new V3(), _fpn = new V3(), _gh = new V3(), _gpn = new V3();
+  const _pn = new V3(), _pn2 = new V3(), _pnIdle = [new V3(-0.5, 0.3, -0.8).normalize(), new V3(0.5, 0.3, -0.8).normalize()];
+  let scene = null, cam = null, root = null, wpn = null, UA = [], FA = [], kit = null, shell = null, sun = null, hemi = null, env = null, cur = null, curId = null, vis = true, hideW = false;
+  const models = {}, S = WeaponAnim.newState();
+  /* Akimbo: a second (mirrored) pistol in the left hand with its own recoil springs and reload state */
+  const modelsL = {}, SL = WeaponAnim.newState(); let curL = null, wpnL = null;
+  const stL = { kick: 0, kickV: 0, rot: 0, rotV: 0, sz: 0, szV: 0, sr: 0, srV: 0, kx: 0, kxV: 0, ky: 0, kyV: 0, rz: 0, rzV: 0, yw: 0, ywV: 0, flashT: 9 };
+  const _bp = new V3(), _bq = new Qt(), _lp = new V3(), _lq = new Qt(), _lw = new V3(), _lX = new V3(), _lY = new V3(), _lZ = new V3();
+  function stepL(dt) {
+    const s = stL; s.kickV += (-260 * s.kick - 22 * s.kickV) * dt; s.kick += s.kickV * dt; s.rotV += (-220 * s.rot - 20 * s.rotV) * dt; s.rot += s.rotV * dt;
+    for (let k = 0; k < 2; k++) { const h2 = dt * 0.5;
+      s.szV += (-1200 * s.sz - 24 * s.szV) * h2; s.sz += s.szV * h2; s.srV += (-1200 * s.sr - 24 * s.srV) * h2; s.sr += s.srV * h2;
+      s.kxV += (-320 * s.kx - 18 * s.kxV) * h2; s.kx += s.kxV * h2; s.kyV += (-320 * s.ky - 18 * s.kyV) * h2; s.ky += s.kyV * h2;
+      s.rzV += (-320 * s.rz - 18 * s.rzV) * h2; s.rz += s.rzV * h2; s.ywV += (-320 * s.yw - 18 * s.ywV) * h2; s.yw += s.ywV * h2; }
+  }
+  const st = { sz: 0, szV: 0, sr: 0, srV: 0, kx: 0, kxV: 0, ky: 0, kyV: 0, rz: 0, rzV: 0, yw: 0, ywV: 0, t: 0, kick: 0, kickV: 0, rot: 0, rotV: 0, swX: 0, swY: 0, bob: 0, bobAmp: 0, land: 0, landV: 0, flashT: 9, lastVy: 0, baseSun: 3, baseHemi: 0.8, shade: 1, shadeTarget: 1, slideW: 0, diveW: 0, vaultW: 0, sprW: 0, thrW: 0, ghW: 0, adsOut: 0, swT: 0, swDur: 0, swKind: 0, aS: 0, aV: 0, sS: 0, sV: 0, jx: 0, jxV: 0, jy: 0, jyV: 0, zy: 0, zyV: 0, pvy: 0, ri: 0, riV: 0, idN: 2, pdr: 0, insU: 0, insW: 0, insLW: 0, insFl: false, insOpen: 0, insTight: 0, insLoose: 0 };
+
+  function setOperator() { if (!UA.length) return; const nk = SoldierModel.playerKit(); for (let i = 0; i < 2; i++) { const g = SoldierModel.armGeos(nk, i); let n = 0; UA[i].traverse((o) => { if (o.isMesh && n < g.length) o.geometry = g[n++]; }); } } function init(envInfo, team) {
+    env = envInfo; scene = new THREE.Scene(); cam = new THREE.PerspectiveCamera(50, 16 / 9, 0.005, 8); scene.add(cam);
+    if (env && env.texture) { scene.environment = env.texture; if ('environmentIntensity' in scene) scene.environmentIntensity = 0.9; }
+    sun = new THREE.DirectionalLight(env ? env.sunColor : 0xffe2b4, env ? env.sunIntensity : 3); if (env) sun.position.copy(env.sunDir).multiplyScalar(5); else sun.position.set(-3, 5, 3); scene.add(sun);
+    hemi = new THREE.HemisphereLight(env ? env.hemiSky : 0xa8c8f0, env ? env.hemiGround : 0x9a8466, env ? env.hemiIntensity : 0.8); scene.add(hemi);
+    st.baseSun = sun.intensity; st.baseHemi = hemi.intensity;
+    root = new THREE.Group(); cam.add(root); wpn = new THREE.Group(); wpn.rotation.order = 'YXZ'; root.add(wpn);
+    wpnL = new THREE.Group(); wpnL.visible = false; root.add(wpnL);
+    kit = SoldierModel.playerKit();
+    { const vmMat = kit.mat.clone(); vmMat.side = THREE.DoubleSide; kit = Object.assign({}, kit, { mat: vmMat }); }   /* arms are drawn double-sided so no faces vanish (holes) when the camera is right up against them */
+    for (let i = 0; i < 2; i++) {
+      const ua = new THREE.Group(), fa = new THREE.Group(); ua.rotation.order = fa.rotation.order = 'YXZ'; fa.position.set(0, -kit.LA1, 0);
+      const m1 = new THREE.Mesh(kit.ua[i], kit.mat), m2 = new THREE.Mesh(kit.fa[i], kit.mat); m1.frustumCulled = m2.frustumCulled = false;
+      ua.add(m1); fa.add(m2); ua.add(fa); root.add(ua); UA.push(ua); FA.push(fa); buildRig(i, fa);
+    }
+    shell = WeaponAnim.makeShell(); FA[0].add(shell); shell.position.set(0, -0.33, -0.01);
+  }
+
+  function makeFlash() {
+    const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
+    const gr = g.createRadialGradient(32, 32, 1, 32, 32, 31); gr.addColorStop(0, 'rgba(255,252,230,1)'); gr.addColorStop(0.3, 'rgba(255,205,120,0.85)'); gr.addColorStop(0.65, 'rgba(255,125,35,0.25)'); gr.addColorStop(1, 'rgba(255,90,10,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, 64, 64); g.globalCompositeOperation = 'lighter'; g.strokeStyle = 'rgba(255,235,180,0.9)'; g.lineWidth = 3;
+    for (let i = 0; i < 5; i++) { const a = i * 1.2566 + 0.4; g.beginPath(); g.moveTo(32, 32); g.lineTo(32 + Math.cos(a) * 30, 32 + Math.sin(a) * 30); g.stroke(); }
+    const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+    const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false });
+    const g2 = new THREE.Group(), geo = new THREE.PlaneGeometry(1, 1), a = new THREE.Mesh(geo, mat), b = new THREE.Mesh(geo, mat); b.rotation.y = Math.PI / 2; a.frustumCulled = b.frustumCulled = false; g2.add(a, b); g2.visible = false; return g2;
+  }
+
+  /* laser sight: a thin additive beam from the module along the barrel, with a dot where the aim ray lands (first person only) */
+  let beamGeo = null, dotTex = null;
+  function makeBeam(l, m) {
+    if (!beamGeo) {
+      const w = 0.0022, pos = [], col = [], idx = [];
+      const q = (ax, ay) => { const b = pos.length / 3; pos.push(-ax, -ay, 0, ax, ay, 0, ax, ay, -1, -ax, -ay, -1); for (let i = 0; i < 4; i++) col.push(1, 1, 1, i < 2 ? 0.95 : 0.1); idx.push(b, b + 1, b + 2, b, b + 2, b + 3); };
+      q(w, 0); q(0, w);
+      beamGeo = new THREE.BufferGeometry(); beamGeo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); beamGeo.setAttribute('color', new THREE.Float32BufferAttribute(col, 4)); beamGeo.setIndex(idx);
+      const cv = document.createElement('canvas'); cv.width = cv.height = 32; const g = cv.getContext('2d'), gr = g.createRadialGradient(16, 16, 0, 16, 16, 16);
+      gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.35, 'rgba(255,255,255,.7)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 32, 32); dotTex = new THREE.CanvasTexture(cv);
+    }
+    const colr = l[3] === 'green' ? 0x2dff4a : 0xff2a1a;
+    const mat = new THREE.MeshBasicMaterial({ color: colr, vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false, fog: false });
+    const g = new THREE.Group(), rib = new THREE.Mesh(beamGeo, mat); rib.frustumCulled = false; g.add(rib);
+    const dot = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTex, color: colr, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, transparent: true, toneMapped: false, fog: false })); dot.scale.setScalar(0.028); g.add(dot);
+    g.position.set(l[0], l[1], -l[2]); m.root.add(g); return { g, rib, dot };
+  }
+  /* Gunsmith: mount a weapon state's attachments on the cached first-person model, then re-aim what depends on them:
+     the ADS sight line (optic), the muzzle flash point (barrel / muzzle device) and the support hand (foregrip) */
+  function vmAtt(m, id, ws) {
+    if (typeof AttachModels === 'undefined') return;
+    const cf = ws && ws.cfg, list = cf && cf.att ? cf.att : [], key = list.length ? list.join(',') : '-';
+    if (m._vmKey === undefined) { m._vmKey = '-'; m._hold0 = m.hold.l; }
+    if (m._vmKey !== key) {
+      m._vmKey = key; AttachModels.apply(m, id, list, { low: false });
+      m.root.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.frustumCulled = false; } });
+      const info = AttachModels.info(m), ad = m.anchors.ads.position;
+      m.adsP = new V3(-ad.x, -ad.y, -m.pose.ads * (info && info.ads ? info.depth : 1) - ad.z);
+      const hd = info && info.hold; let hl = m._hold0;
+      if (hd && hd.grip && hd.grip !== 'n') { const r = 0.0165; hl = buildHold(L_WRAP(-r - 0.002, hd.y, hd.f, [BX(0, hd.y, hd.f, r, 0.042, r)]), RIG[0]); }
+      m.hold.l = hl; delete m._wa; WeaponAnim.build(m);
+      if (m._beam) { if (m._beam.g.parent) m._beam.g.parent.remove(m._beam.g); m._beam = null; }
+      if (info && info.laser) m._beam = makeBeam(info.laser, m);
+    }
+  }
+  /* Laser aim: the beam runs from its emitter to the point under the crosshair (the camera-ray hit, or ~25 m out in open air) so the dot sits ON the crosshair instead of parallel to the barrel */
+  const _lM = new THREE.Matrix4(), _lT = new V3(), _lO = new V3(), _lD = new V3(), _lZn = new V3(0, 0, -1);
+  function aimBeam(m, holder, c, dt) {
+    const bm = m._beam; if (!bm || !bm.g.visible) return;
+    /* converge on the crosshair only while the gun is still; any movement (walk, sprint, slide, dive, vault, reload, weapon switch, throw) lets the beam shoot straight out of the emitter */
+    const mv = Math.max(clamp(st.bobAmp * 3, 0, 1), st.sprW, st.ghW, st.slideW, st.diveW, st.vaultW, st.thrW, st.relW || 0, clamp(c.drop || 0, 0, 1)), cwT = 1 - clamp(mv, 0, 1);
+    bm.cw = bm.cw === undefined ? cwT : bm.cw + (cwT - bm.cw) * (1 - Math.exp(-(cwT < bm.cw ? 18 : 6) * dt)); const cw = bm.cw;
+    const ld = c.laserDist, hit = ld !== undefined && ld < 7.9, D = hit ? Math.max(ld, 0.3) : 25;
+    holder.updateMatrix(); m.root.updateMatrix(); _lM.multiplyMatrices(holder.matrix, m.root.matrix).invert();
+    _lT.set(0, 0, -D).applyMatrix4(_lM); _lO.copy(bm.g.position); _lD.subVectors(_lT, _lO);
+    const dist = _lD.length(); if (dist < 1e-4) return; _lD.multiplyScalar(1 / dist);
+    _lD.multiplyScalar(cw).addScaledVector(_lZn, 1 - cw); if (_lD.lengthSq() < 1e-6) _lD.copy(_lZn); _lD.normalize();
+    bm.g.quaternion.setFromUnitVectors(_lZn, _lD);
+    const Lc = hit ? dist : Math.min(dist, 7.5), Ls = Math.min(ld === undefined ? 7.5 : ld, 7.5), L = Ls + (Lc - Ls) * cw; bm.rib.scale.z = L; bm.dot.position.z = -L; bm.dot.visible = hit && L < 7.4;
+  }
+  function mirrorHold(h) { const mv = (q) => new V3(-q.x, q.y, q.z); return { p: mv(h.p), pn: mv(h.pn), fd: mv(h.fd), shape: h.shape.map((s) => ({ t: s.t, a: s.a.map((x, i) => (i === 0 ? -x : x)) })), trig: h.trig ? mv(h.trig) : undefined, thumbZ: h.thumbZ, thumb: h.thumb }; }
+  /* Akimbo: show / hide the left-hand gun (mirrored copy of the right-hand pistol) */
+  function setLeft(id, ws) {
+    if (!id || !ws || !wpnL || !UA.length) { if (curL) curL.root.visible = false; curL = null; return; }
+    let m = modelsL[id];
+    if (!m) {
+      m = modelsL[id] = WeaponModels.create(id, { lod: 'high' }); wpnL.add(m.root); WeaponAnim.build(m); m.cls = WeaponAnim.CLASS[id] || 'pistol'; m.pose = POSE_ID[id] || POSE[m.cls] || POSE.pistol; m.melee = false;
+      m.root.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.frustumCulled = false; } });
+      m.flash = makeFlash(); m.flash.position.set(0, 0, -0.04); m.anchors.muzzle.add(m.flash);
+      const ad = m.anchors.ads.position; m.adsP = new V3(-ad.x, -ad.y, -m.pose.ads - ad.z);
+      const hh = HOLD[id] || HOLD.m1911; m.hold = { r: buildHold(hh.r, RIG[1]), l: buildHold(hh.l, RIG[0]) }; m.holdMir = buildHold(mirrorHold(hh.r), RIG[0]);
+    }
+    if (curL && curL !== m) curL.root.visible = false;
+    vmAtt(m, id, ws); m.root.visible = true; curL = m;
+  }
+  function setWeapon(id, ws) {
+    if (cur) cur.root.visible = false;
+    if (!id) { cur = null; curId = null; return; }
+    let m = models[id];
+    if (!m) {
+      m = models[id] = WeaponModels.create(id, { lod: 'high' }); wpn.add(m.root); WeaponAnim.build(m); m.cls = WeaponAnim.CLASS[id] || 'rifle'; m.pose = POSE_ID[id] || POSE[m.cls] || POSE.rifle; m.melee = !!(Weapons.CFG[id] && Weapons.CFG[id].kind === 'melee');
+      m.root.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.frustumCulled = false; } });
+      m.flash = makeFlash(); m.flash.position.set(0, 0, -0.04); m.anchors.muzzle.add(m.flash);
+      const ad = m.anchors.ads.position; m.adsP = new V3(-ad.x, -ad.y, -m.pose.ads - ad.z);
+      const hh = HOLD[id] || HOLD.ak; m.hold = { r: buildHold(hh.r, RIG[1]), l: buildHold(hh.l, RIG[0]) };
+    }
+    vmAtt(m, id, ws); WeaponCosmetics.apply(m.root, id);
+    m.root.visible = true; cur = m; curId = id; WeaponAnim.resetState(S); WeaponAnim.apply(m, S); st.kick = st.kickV = st.rot = st.rotV = st.sz = st.szV = st.sr = st.srV = st.kx = st.kxV = st.ky = st.kyV = st.rz = st.rzV = st.yw = st.ywV = 0; st.swDur = 0; st.flashT = 9; m.flash.visible = false;
+  }
+
+  /* weapon fired: impulse the springs, show flash. strength ~ cfg.kickZ / kickRot */
+  function fire(cfg, left) {
+    const sx = left ? stL : st, cm = left ? curL : cur;
+    sx.kickV += (cfg.kickZ || 0.05) * 22; sx.rotV += (cfg.kickRot || 0.05) * 22; sx.flashT = 0;
+    /* visual-only punch (the aim kick / spread are untouched): a sharp, quick-returning shove back into the shoulder and muzzle flip, plus per-shot random sideways / lift / roll / yaw so the gun
+       bucks differently every shot. pf = peak [back m, flip rad, side m, lift m, roll rad, yaw rad] */
+    const kd = cfg.kind, pf = kd === 'shotgun' ? [0.05, 0.075, 0.014, 0.016, 0.16, 0.06] : kd === 'sniper' ? [0.05, 0.07, 0.01, 0.014, 0.12, 0.045] : kd === 'lmg' ? [0.042, 0.04, 0.012, 0.01, 0.07, 0.04]
+      : kd === 'pistol' ? [0.04, 0.085, 0.008, 0.012, 0.1, 0.04] : cfg.id === 'm4' && !(sx.ghW > 0.05) ? [0.03, 0.058, 0.005, 0.012, 0.03, 0.016] : cfg.id === 'mp5' ? [0.026, 0.03, 0.008, 0.006, 0.05, 0.03] : [0.036, 0.048, 0.01, 0.009, 0.075, 0.036];
+    const sg = Math.random() < 0.5 ? -1 : 1, j = 0.7 + Math.random() * 0.6;
+    sx.szV += pf[0] * 49.5 * j; sx.srV += pf[1] * 49.5 * j; sx.kxV += pf[2] * 22 * sg * j; sx.kyV += pf[3] * 22 * j; sx.rzV += pf[4] * 22 * -sg * (0.5 + Math.random()); sx.ywV += pf[5] * 22 * sg * (0.5 + Math.random());
+    const fk = cfg.flash === undefined ? 1 : cfg.flash; if (cm && cm.flash && fk > 0.02) { cm.flash.visible = true; cm.flash.rotation.z = Math.random() * 6.28; const s = cfg.kind === 'pistol' ? 0.22 : cfg.kind === 'shotgun' || cfg.kind === 'sniper' ? 0.42 : 0.3; cm.flash.scale.setScalar(s * fk * (0.8 + Math.random() * 0.4)); }
+  }
+
+  /* ---------------- knife swing (visual only): weapon-local offsets [x, y, z, rx, ry, rz] over the swing; kind 0 = forehand (right to left), 1 = backhand (left to right) ---------------- */
+  const SW = [0, 0, 0, 0, 0, 0];
+  /* v70 aggressive swings. kinds: 0 = forehand slash, 1 = backhand slash, 2 = lunging stab (the chain runs 0, 1, 2, 0, ...).
+     key = [u, x, y, z, rx, ry, rz, ease]; ease (on the key being reached): 0 smooth, 1 accelerate (the snap into the hit), 2 decelerate (overshoot and settle).
+     Wind-up coils back toward the camera, the slash whips through and lands at u ~ 0.62 just before the blade connects (hit = 0.65). */
+  const SWK = [
+    [[0, 0, 0, 0, 0, 0, 0], [0.18, 0.17, 0.11, 0.1, 0.6, -0.95, -1.6, 0], [0.62, -0.36, -0.13, -0.36, -0.75, 1.15, 1.75, 1], [0.76, -0.44, -0.15, -0.3, -0.62, 1.32, 1.95, 2], [1, 0, 0, 0, 0, 0, 0, 0]],
+    [[0, 0, 0, 0, 0, 0, 0], [0.18, -0.17, 0.06, 0.1, 0.6, 0.95, 1.6, 0], [0.62, 0.36, -0.15, -0.36, -0.75, -1.15, -1.75, 1], [0.76, 0.44, -0.17, -0.3, -0.62, -1.32, -1.95, 2], [1, 0, 0, 0, 0, 0, 0, 0]],
+    [[0, 0, 0, 0, 0, 0, 0], [0.18, 0.04, 0.07, 0.17, 0.62, -0.12, 0.55, 0], [0.62, -0.03, -0.07, -0.58, -0.42, 0.1, -0.45, 1], [0.76, -0.04, -0.08, -0.66, -0.46, 0.12, -0.55, 2], [1, 0, 0, 0, 0, 0, 0, 0]]
+  ];
+  function knifeSwing(u, kind) {
+    const K = SWK[(kind | 0) % 3]; let i = 0; while (i < K.length - 2 && u >= K[i + 1][0]) i++;
+    const a = K[i], b = K[i + 1], t = clamp((u - a[0]) / (b[0] - a[0]), 0, 1), m = b[7] | 0, e = m === 1 ? Math.pow(t, 2.4) : m === 2 ? 1 - Math.pow(1 - t, 2.6) : t * t * (3 - 2 * t);
+    for (let j = 0; j < 6; j++) SW[j] = a[j + 1] + (b[j + 1] - a[j + 1]) * e;
+  }
+  /* ---------------- knife inspect (F): hand-held keys (spline) + detached toss / flip flights + left-hand check; camera targets and beats are exported for the player camera ---------------- */
+  const INS_DUR = 5.6, INS_PIV = [0, 0.03, 0];
+  const INS_K = [
+    [0, 0.152, -0.161, -0.671, -0.45, 0.864, -0.225, -0.12],
+    [0.1, 0.124, -0.167, -0.653, -0.357, 0.862, -0.361, -0.092],
+    [0.18, 0.043, -0.113, -0.537, -0.1, 0.989, -0.11, 0.784],
+    [0.26, 0.039, -0.091, -0.503, 0.047, 0.999, -0.027, 0.935],
+    [0.33, 0.052, -0.118, -0.539, -0.165, 0.982, -0.096, 0.746],
+    [0.38, 0.086, -0.159, -0.607, -0.27, 0.905, -0.328, 0.255],
+    [0.41, 0.094, -0.106, -0.615, -0.251, 0.923, -0.292, 0.092],
+    [0.45, 0.096, -0.084, -0.606, -0.255, 0.932, -0.258, 0.06],
+    [0.48, 0.097, -0.131, -0.618, -0.311, 0.899, -0.306, 0.024],
+    [0.5, 0.098, -0.175, -0.619, -0.314, 0.879, -0.359, 0.016],
+    [0.55, 0.098, -0.158, -0.619, -0.316, 0.886, -0.339, 0.014],
+    [0.575, 0.098, -0.169, -0.619, -0.316, 0.881, -0.352, 0.013],
+    [0.58, 0.098, -0.136, -0.619, -0.319, 0.894, -0.313, 0.009],
+    [0.62, 0.098, -0.115, -0.618, -0.323, 0.902, -0.287, 0.002],
+    [0.65, 0.098, -0.147, -0.619, -0.32, 0.89, -0.326, 0.003],
+    [0.66, 0.098, -0.175, -0.619, -0.316, 0.878, -0.359, 0.009],
+    [0.72, 0.001, -0.067, -0.421, 0.096, 0.994, -0.043, 0.971],
+    [0.78, -0.012, -0.061, -0.409, 0.044, 0.999, 0.029, 0.945],
+    [0.82, 0.016, -0.088, -0.465, -0.041, 0.997, -0.071, 0.789],
+    [0.835, 0.054, -0.145, -0.554, -0.243, 0.923, -0.298, 0.308],
+    [0.84, 0.06, -0.116, -0.561, -0.282, 0.922, -0.264, 0.148],
+    [0.88, 0.062, -0.095, -0.563, -0.299, 0.925, -0.235, 0.095],
+    [0.905, 0.075, -0.14, -0.586, -0.307, 0.903, -0.302, 0.065],
+    [0.91, 0.075, -0.168, -0.597, -0.308, 0.889, -0.339, 0.06],
+    [0.95, 0.108, -0.189, -0.669, -0.359, 0.853, -0.379, 0.012],
+    [1, 0.152, -0.161, -0.671, -0.45, 0.864, -0.225, -0.12]
+  ];   /* u, x, y, z (camera space), blade direction (bx, by, bz), roll about the blade axis; solved so the wrist never bends past ~45 degrees */
+  const INS_OPEN = [[0.15, 0.12, 0.08], [0.18, 0.14, 0.1], [0.24, 0.18, 0.12], [0.3, 0.22, 0.14], [0.3, 0.12, 0.06]], _insHold = { curl: [[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]], thumbZ: 0 };   /* relaxed open hand; _insHold = the right hand's per-frame finger pose during an inspect */
+  const INS_FL = [[0.41, 0.5, 0, 1, 0.17], [0.58, 0.66, 1, 2, 0.09], [0.84, 0.91, 2, 1, 0.12]];   /* a, b, axis (0 camera X, 1 blade axis, 2 camera Z), turns, arc height */
+  const INS_BEATS = [{ u: 0.41, p: 0.5, r: -0.3, y: 0.1, k: 0.03, w: 1 }, { u: 0.5, p: -1.3, r: 0.8, y: -0.2, k: 0.14 }, { u: 0.58, p: 0.4, r: 0.3, y: 0, k: 0.02, w: 1 }, { u: 0.66, p: -1.0, r: -0.7, y: 0.2, k: 0.12 }, { u: 0.84, p: 0.6, r: 0.5, y: 0, k: 0.03, w: 1 }, { u: 0.91, p: -1.4, r: -0.9, y: 0.15, k: 0.16 }];
+  const INS_CAM = [[0, 0, 0, 0], [0.1, -0.03, -0.02, 0.01], [0.2, -0.045, -0.03, 0.02], [0.35, -0.05, 0.02, -0.02], [0.41, -0.025, 0.03, -0.03], [0.5, 0.015, 0, 0], [0.6, -0.02, 0.01, 0.01], [0.72, -0.06, -0.02, 0.03], [0.82, -0.055, -0.04, 0.02], [0.91, -0.02, 0, 0], [1, 0, 0, 0]];
+  const insS = (e0, e1, x) => { const q = clamp((x - e0) / (e1 - e0), 0, 1); return q * q * (3 - 2 * q); };
+  const _iK = [0, 0, 0, 0, 0, 0, 0], _ip = new V3(), _ibd = new V3(), _iY = new V3(0, 1, 0), _iX = new V3(1, 0, 0), _iZ = new V3(0, 0, 1), _iq = new Qt(), _iq2 = new Qt(), _ifp = new V3(), _ifq = new Qt(), _iv = new V3(), _iv2 = new V3(), _ihT = new V3(), _ihN = new V3();
+  function insSpline(u) {   /* Catmull-Rom through INS_K -> _iK[0..6] = x, y, z, bx, by, bz, roll */
+    const K = INS_K, n = K.length; let i = 0; while (i < n - 2 && u >= K[i + 1][0]) i++;
+    const a = K[i], b = K[i + 1], p = K[Math.max(0, i - 1)], q = K[Math.min(n - 1, i + 2)], h = b[0] - a[0], t = clamp((u - a[0]) / h, 0, 1), t2 = t * t, t3 = t2 * t;
+    const h00 = 2 * t3 - 3 * t2 + 1, h10 = t3 - 2 * t2 + t, h01 = 3 * t2 - 2 * t3, h11 = t3 - t2, dA = i > 0 ? 1 / (b[0] - p[0]) : 0, dB = i + 2 < n ? 1 / (q[0] - a[0]) : 0;
+    for (let j = 0; j < 7; j++) _iK[j] = h00 * a[j + 1] + h10 * h * (b[j + 1] - p[j + 1]) * dA + h01 * b[j + 1] + h11 * h * (q[j + 1] - a[j + 1]) * dB;
+  }
+  function inspectCam(u, o) {
+    const K = INS_CAM, n = K.length; let i = 0; while (i < n - 2 && u >= K[i + 1][0]) i++;
+    const a = K[i], b = K[i + 1], e = insS(a[0], b[0], u); o.p = a[1] + (b[1] - a[1]) * e; o.y = a[2] + (b[2] - a[2]) * e; o.r = a[3] + (b[3] - a[3]) * e;
+  }
+  const _qKo = qe(-0.95, 0.2, 0.06), _qKoI = _qKo.clone().invert(), _qSw = new Qt();   /* the knife swing was authored for the old grip: keep its world-space motion whatever the grip is */
+  function swing(kind, dur) { st.swKind = (kind | 0) % 3; st.swT = 0; st.swHold = 0; st.swDur = dur > 0 ? dur : 0.45; }
+  /* knife connects: freeze the blade in the target for a beat and slam the arm back (hit-stop) */
+  function hitStop(sec) { if (st.swDur > 0) { st.swHold = sec; st.szV += 2.6; } }
+
+  function sync(mainCam) {
+    cam.aspect = mainCam.aspect; const h = 86 * Math.PI / 180; cam.fov = 2 * Math.atan(Math.tan(h / 2) / Math.max(1.15, mainCam.aspect)) * 180 / Math.PI; cam.updateProjectionMatrix();
+    cam.position.copy(mainCam.position); cam.quaternion.copy(mainCam.quaternion); cam.updateMatrixWorld(true);
+  }
+
+  /* W / X / Y / Z: where the hand holds the gun (wrist position and hand axes, camera space).  Pf / pnF: the free-hand target (slide: planted on the ground,
+     dive: flung out) blended in by wf.  The hand is oriented from the hold axes (not from the forearm), so the fingers wrap the grip however the forearm approaches. */
+  function armIK(i, W, X, Y, Z, Pf, pnF, wf, dt) {
+    _S.copy(SHOULDER[i]);
+    if (wf > 0.001) { _a.subVectors(Pf, _S); let d = _a.length(); if (d < 1e-4) d = 1e-4; _a.multiplyScalar(1 / d); _Tf.copy(Pf).addScaledVector(_a, kit.hollow[1]).addScaledVector(pnF, -kit.hollow[2]); }
+    if (wf >= 0.999) _T.copy(_Tf); else if (wf <= 0.001) _T.copy(W); else _T.lerpVectors(W, _Tf, wf);
+    _a.subVectors(_T, _S); let d0 = _a.length(); if (d0 < 1e-4) d0 = 1e-4; _a.multiplyScalar(1 / d0);
+    const reach = kit.LA1 + kit.LA2 - 0.012; if (d0 > reach) _S.addScaledVector(_a, Math.min(d0 - reach, 0.34));
+    UA[i].position.copy(_S); _pole.set(i ? 0.55 : -0.55, -1, 0.5);
+    kit.solveLimb(UA[i], FA[i], _S, _T, _pole, kit.LA1, kit.LA2);
+    _qt.copy(UA[i].quaternion).multiply(FA[i].quaternion).invert();
+    // free-hand roll about the forearm (smoothed); keeps tracking so hold <-> free blends don't pop
+    _tp.copy(pnF).applyQuaternion(_qt);
+    if (_tp.x * _tp.x + _tp.z * _tp.z > 1e-5) { const t = Math.atan2(_tp.x, _tp.z); let dd = t - HR[i]; dd -= Math.round(dd / 6.2832) * 6.2832; HR[i] += dd * (dt > 0 ? 1 - Math.exp(-26 * dt) : 1); }
+    _qy.setFromAxisAngle(AY, HR[i]);
+    let tq = _qy;
+    if (wf < 0.999) { _m4.makeBasis(X, Y, Z); _qh.setFromRotationMatrix(_m4).premultiply(_qt); tq = wf > 0.001 ? _qh.slerp(_qy, wf) : _qh; }
+    if (!HI[i] || !(dt > 0)) { HQ[i].copy(tq); HI[i] = true; } else HQ[i].slerp(tq, 1 - Math.exp(-32 * dt));
+    RIG[i].hand.quaternion.copy(HQ[i]);
+  }
+
+  /* c: { ads, sprint, speed01, grounded, vy, slide, dive, crouch, lookYaw, lookPitch, reload:{t,dur,empty}|null, cycle:{t01,kind}|null, drop, empty, mag, hide } */
+  function update(dt, c) {
+    dt = Math.min(dt, 0.05); st.t += dt;
+    const mw = curId === 'm4', isSn = curId === 'awp', a0 = c.ads || 0;   /* mw: the M4A1 gets the MW2019 handling layer; every other weapon is untouched */
+    { const n = Math.max(1, Math.ceil(dt / 0.005)), h = dt / n;   /* sub-stepped so these springs stay stable on slow frames */
+      for (let i = 0; i < n; i++) { if (mw) { st.aV += (700 * (a0 - st.aS) - 38 * st.aV) * h; st.aS += st.aV * h; } else if (isSn) { const tg = a0 * a0 * a0 * (a0 * (a0 * 6 - 15) + 10); st.aV += (340 * (tg - st.aS) - 30 * st.aV) * h; st.aS += st.aV * h; }   /* AX-50: heavy, slightly under-damped spring on a smootherstep target - slow to leave the shoulder, drops into the scope with a small settle */ st.sV += (320 * (st.sprW - st.sS) - 28 * st.sV) * h; st.sS += st.sV * h; }
+      if (!mw && !isSn) { st.aS = a0; st.aV = 0; } }   /* M4: ADS in/out settles with a hair of overshoot; sprint carry snaps in and settles */
+    const kd = (r) => 1 - Math.exp(-r * dt);
+    // sun-lit / shade modulation
+    st.shade += (st.shadeTarget - st.shade) * kd(6); sun.intensity = st.baseSun * (0.12 + 0.88 * st.shade); hemi.intensity = st.baseHemi * (0.75 + 0.25 * st.shade); if ('environmentIntensity' in scene) scene.environmentIntensity = 0.9 * (0.55 + 0.45 * st.shade);
+    // springs (z kick and pitch kick)
+    st.kickV += (-260 * st.kick - 22 * st.kickV) * dt; st.kick += st.kickV * dt; st.rotV += (-220 * st.rot - 20 * st.rotV) * dt; st.rot += st.rotV * dt;
+    for (let sub = 0; sub < 2; sub++) {   /* extra recoil springs (visual only): fast punch back / flip, slower sideways, lift, roll and yaw */
+      const h2 = dt * 0.5;
+      st.szV += (-1200 * st.sz - (mw ? 40 - 16 * clamp(st.ghW, 0, 1) : 24) * st.szV) * h2; st.sz += st.szV * h2; st.srV += (-1200 * st.sr - (mw ? 40 - 16 * clamp(st.ghW, 0, 1) : 24) * st.srV) * h2; st.sr += st.srV * h2;
+      st.kxV += (-320 * st.kx - 18 * st.kxV) * h2; st.kx += st.kxV * h2; st.kyV += (-320 * st.ky - 18 * st.kyV) * h2; st.ky += st.kyV * h2;
+      st.rzV += (-320 * st.rz - 18 * st.rzV) * h2; st.rz += st.rzV * h2; st.ywV += (-320 * st.yw - 18 * st.ywV) * h2; st.yw += st.ywV * h2;
+    }
+    st.flashT += dt; if (cur && cur.flash && st.flashT > 0.05) cur.flash.visible = false;
+    const akOn = !!(c.ak && curL); st.akW = (st.akW || 0) + ((akOn ? 1 : 0) - (st.akW || 0)) * kd(12);
+    if (curL) { stL.flashT += dt; if (curL.flash && stL.flashT > 0.05) curL.flash.visible = false; stepL(dt); }
+    // landing dip
+    if (c.grounded && st.lastVy < -3.5) st.landV += Math.min(1, -st.lastVy / 9) * 1.6; st.lastVy = c.grounded ? 0 : c.vy;
+    st.landV += (-110 * st.land - 14 * st.landV) * dt; st.land += st.landV * dt;
+    // sway from look velocity
+    const swK = c.swayK === undefined ? 1 : c.swayK, tx = clamp(-(c.lookYaw || 0) / Math.max(dt, 1e-3) * 0.012, -0.035, 0.035) * swK, ty = clamp((c.lookPitch || 0) / Math.max(dt, 1e-3) * 0.012, -0.03, 0.03) * swK;
+    st.swX += (tx - st.swX) * kd(9); st.swY += (ty - st.swY) * kd(9);
+    // bob
+    const sp = clamp(c.speed01 || 0, 0, 1.4), walk = c.grounded && !c.slide && !c.dive ? sp : 0, a = (mw || isSn) ? clamp(st.aS, -0.03, 1.05) : a0;
+    st.bob += dt * (6.5 + 4.5 * (c.sprint || 0)) * walk; st.bobAmp += (walk * (1 - 0.8 * a) - st.bobAmp) * kd(8);
+    st.relW = (st.relW || 0) + (((c.reload || (c.ak && c.reloadL)) ? 1 : 0) - (st.relW || 0)) * kd(14); const rw = 1 - st.relW; /* rw: 0 while reloading -> hands back on the gun, slide pose off */
+    st.slideW += ((c.slide ? 1 : 0) - st.slideW) * kd(10); st.thrW += ((c.thr ? 1 : 0) - st.thrW) * kd(30); st.ghW += ((c.gh ? 1 : 0) - st.ghW) * kd(11); st.diveW += ((c.dive ? 1 : 0) - st.diveW) * kd(9); st.vaultW += ((c.vault ? 1 : 0) - st.vaultW) * kd(14); st.sprW += ((c.sprint || 0) * (1 - a) - st.sprW) * kd(1000 * 0 + 12);
+
+    const m = cur;
+    if (!m) { // arms-only ready pose
+      _P.set(0.18, -0.4, -0.3); armIK(1, _P, _pnIdle[1], _pnIdle[1], _pnIdle[1], _P, _pnIdle[1], 1, dt); updateFingers(1, null, 1, 0, dt); _P.set(-0.18, -0.4, -0.3); armIK(0, _P, _pnIdle[0], _pnIdle[0], _pnIdle[0], _P, _pnIdle[0], 1, dt); updateFingers(0, null, 1, 0, dt); shell.visible = false; if (wpnL) wpnL.visible = false; return;
+    }
+    const P = m.pose; WeaponAnim.resetState(S);
+    if (c.reload) { if (c.ak) WeaponAnim.reloadAk(m, c.reload.t / c.reload.dur, S, c.reload.empty); else WeaponAnim.reloadTimed(m, c.reload.t, c.reload.dur, S, c.reload.empty); }
+    else if (c.cycle) { if (c.cycle.kind === 'bolt') WeaponAnim.bolt(m, c.cycle.t01, S); else WeaponAnim.pumpCycle(m, c.cycle.t01, S); }
+    const kk = clamp(st.kick / 0.05, 0, 1);
+    if (S.slide === 0 && m.parts.slide) S.slide = c.empty ? 1 : clamp(st.flashT < 0.09 ? 1 - st.flashT / 0.09 : 0, 0, 1);
+    if (S.charge === 0 && m.parts.charge && !c.reload) S.charge = st.flashT < 0.05 ? 0.9 : 0;
+    if (mw && c.reload && a > 0.01) { const k = 1 - 0.82 * clamp(a, 0, 1); S.roll *= k; S.pitch *= k; S.yaw *= k; S.sx *= k; S.sy *= k; S.sz *= k; }   /* ADS reload: the gun stays on target while the hands work */
+    WeaponAnim.apply(m, S);
+    shell.visible = S.shell > 0.5;
+
+    // base pose: hip -> sprint -> slide/dive -> ADS
+    _wp.set(P.hip[0], P.hip[1], P.hip[2]); _wq.copy(P.hipQ);
+    /* the sprint carry (and the gung-ho run-and-gun stance) give way to the normal hip pose while reloading */
+    const sw = Math.max(0, (mw ? st.sprW + (st.sS - st.sprW) * (1 - clamp(st.ghW, 0, 1)) : st.sprW) - st.ghW) * rw; if (sw > 0.001) { _tp.set(P.spr[0], P.spr[1], P.spr[2]); _wp.lerp(_tp, sw); _wq.slerp(P.sprQ, sw); }
+    /* gung-ho: sprinting with a one-handed gun - the gun rides low at the right hip, muzzle forward and ready to fire; the left arm is free (see below) */
+    const gw = st.ghW * (1 - a) * rw;
+    if (gw > 0.001) { if (!P.gp) { P.gp = [P.hip[0] + 0.025, P.hip[1] - 0.045, P.hip[2] + 0.04]; P.gq = P.hipQ.clone().multiply(qe(0.07, 0.07, 0.06)); } _tp.set(P.gp[0], P.gp[1], P.gp[2]); _wp.lerp(_tp, gw); _wq.slerp(P.gq, gw); }
+    if (st.slideW > 0.001) { _tp.set(P.sld[0], P.sld[1], P.sld[2]); _wp.lerp(_tp, st.slideW * (1 - a) * rw); _wq.slerp(P.sldQ, st.slideW * (1 - a) * rw); }
+    if (st.diveW > 0.001) { _tp.set(P.dive[0], P.dive[1], P.dive[2]); _wp.lerp(_tp, st.diveW * (1 - a) * rw); _wq.slerp(P.diveQ, st.diveW * (1 - a) * rw); }
+    if (a > 0.001) { _wp.lerp(m.adsP, a); _wq.slerp(_tq.identity(), a); }
+    if (isSn && a > 0.001) { const w = Math.sin(Math.PI * clamp(a, 0, 1)); _wp.y -= 0.024 * w; _wp.z += 0.034 * w; _q2.setFromEuler(_eu.set(0.055 * w, 0, -0.045 * w, 'YXZ')); _wq.multiply(_q2); }   /* AX-50 weight: the rifle sinks, pulls into the shoulder and rolls a touch mid-transition, then locks onto the eye */
+    if (st.akW > 0.001) _wp.x += 0.035 * st.akW;   /* Akimbo: the guns stand a little wider apart */
+    _bp.copy(_wp); _bq.copy(_wq);
+    // reload / action tilt and offsets
+    if (S.roll || S.pitch || S.yaw) { _q2.setFromEuler(_eu.set(S.pitch, S.yaw, S.roll, 'YXZ')); _wq.multiply(_q2); }
+    _wp.x += S.sx; _wp.y += S.sy; _wp.z += S.sz;
+    if (st.swDur > 0) { if (st.swHold > 0) st.swHold -= dt; else st.swT += dt; const u = st.swT / st.swDur; if (u >= 1) st.swDur = 0; else { knifeSwing(u, st.swKind); _wp.x += SW[0]; _wp.y += SW[1]; _wp.z += SW[2]; _q2.setFromEuler(_eu.set(SW[3], SW[4], SW[5], 'YXZ')); _qSw.copy(_qKo).multiply(_q2).multiply(_qKoI); _wq.premultiply(_qSw); } }   // knife swing
+    if (curId === 'knife') {   /* ---- F: knife inspect: present -> check the blade -> three tosses / flips -> left hand wipes the flat -> flourish ---- */
+      const ci = c.insp; if (ci) st.insU = clamp(ci.t / ci.dur, 0, 1);
+      st.insW += ((ci ? 1 : 0) - st.insW) * kd(ci ? 12 : 16); st.insFl = false; st.insLW = 0; st.insOpen = st.insTight = st.insLoose = 0;
+      if (st.insW > 0.002) {
+        const u = st.insU, w = insS(0, 0.1, u) * (1 - insS(0.93, 1, u)) * st.insW; insSpline(u);
+        _ip.set(_iK[0] + 0.0016 * Math.sin(st.t * 7.3), _iK[1] + 0.0013 * Math.sin(st.t * 6.1 + 1), _iK[2] + 0.001 * Math.sin(st.t * 5.3 + 2)); _ibd.set(_iK[3], _iK[4], _iK[5]).normalize(); _iq.setFromUnitVectors(_iY, _ibd).multiply(_iq2.setFromAxisAngle(_iY, _iK[6]));
+        _wp.lerp(_ip, w); _wq.slerp(_iq, w);
+        for (const f of INS_FL) if (u >= f[0] && u < f[1] && w > 0.5) {   /* the knife leaves the hand: it spins and arcs, and is caught at the end */
+          const sf = (u - f[0]) / (f[1] - f[0]), ang = -6.2832 * f[3] * sf; _iv.set(0, f[4] * 4 * sf * (1 - sf), 0);
+          if (f[2] === 1) { _ifq.copy(_wq).multiply(_iq2.setFromAxisAngle(_iY, -ang)); _ifp.copy(_wp).add(_iv); }
+          else { _ifq.copy(_iq2.setFromAxisAngle(f[2] === 0 ? _iX : _iZ, ang)).multiply(_wq); _ifp.set(INS_PIV[0], INS_PIV[1], INS_PIV[2]).applyQuaternion(_wq).add(_wp).add(_iv); _iv2.set(INS_PIV[0], INS_PIV[1], INS_PIV[2]).applyQuaternion(_ifq); _ifp.sub(_iv2); }
+          { const wb = 0.12 * Math.sin(sf * 8.2) * Math.sin(Math.PI * sf); _ifq.premultiply(_iq2.setFromAxisAngle(f[2] === 0 ? _iY : _iX, wb)); }   /* a thrown knife never spins perfectly true */
+          st.insFl = true; break;
+        }
+        let op = 0, ti = 0; for (const f of INS_FL) { op += insS(f[0] - 0.002, f[0] + 0.014, u) * (1 - insS(f[1] - 0.016, f[1] + 0.008, u)); ti += insS(f[0] - 0.04, f[0] - 0.008, u) * (1 - insS(f[0] - 0.008, f[0] + 0.004, u)); }
+        st.insOpen = Math.min(1, op) * st.insW; st.insTight = Math.min(1, ti) * 0.35 * st.insW;
+        st.insLoose = (0.3 * insS(0.12, 0.2, u) * (1 - insS(0.36, 0.4, u)) + 0.3 * insS(0.68, 0.72, u) * (1 - insS(0.82, 0.85, u))) * st.insW;
+        const lw = insS(0.68, 0.74, u) * (1 - insS(0.82, 0.86, u)), sw = insS(0.74, 0.8, u);   /* the free hand comes in and wipes up the flat of the blade */
+        if (lw > 0.002) { st.insLW = lw * st.insW; { const fs = _iv.set(1, 0, 0).applyQuaternion(_wq).z > 0 ? 1 : -1; _ihT.set(fs * 0.055, 0.045 + 0.09 * sw, 0).applyQuaternion(_wq).add(_wp); _ihN.set(-fs, 0, 0).applyQuaternion(_wq); } }
+      }
+    } else { st.insW = 0; st.insFl = false; st.insLW = 0; st.insOpen = st.insTight = st.insLoose = 0; }
+    // idle breathing, bob, sway, kick
+    if (m._beam) { const bm = m._beam, LL = Math.min(c.laserDist === undefined ? 7.5 : c.laserDist, 7.5); bm.g.visible = a < 0.4 && !c.hide; bm.rib.scale.z = LL; bm.dot.position.z = -LL; bm.dot.visible = LL < 7.4; }
+    const br = Math.sin(st.t * 1.5) * (1 - 0.6 * a) * swK, bx = Math.sin(st.bob) * 0.011 * st.bobAmp, by = -Math.abs(Math.cos(st.bob)) * 0.014 * st.bobAmp;
+    _wp.x += bx + st.swX * (1 - 0.7 * a); _wp.y += by + br * 0.0022 + st.swY * (1 - 0.7 * a) - st.land * 0.05; _wp.z += (st.kick + st.sz) * (1 - 0.6 * a); _wp.x += st.kx * (1 - 0.7 * a); _wp.y += st.ky * (1 - 0.7 * a); _wp.x += Math.sin(st.t * 0.85) * 0.0016 * a * swK; _wp.y += Math.sin(st.t * 1.25 + 1.7) * 0.0014 * a * swK;
+    if (gw > 0.001) { const gb = gw * st.bobAmp, g2 = st.bob * 2; _wp.x += Math.sin(st.bob) * 0.01 * gb; _wp.y += Math.sin(g2 + 0.4) * 0.007 * gb; _q2.setFromEuler(_eu.set(Math.cos(g2) * 0.028 * gb, Math.sin(st.bob) * 0.03 * gb, Math.sin(st.bob) * 0.05 * gb, 'YXZ')); _wq.multiply(_q2); }   /* run-and-gun: the gun bounces and rolls with every stride */
+    _ka.copy(m.anchors.ads.position).applyQuaternion(_wq);
+    _q2.setFromEuler(_eu.set((st.rot + st.sr) * (1 - 0.8 * a) + (st.swY * 0.8 + br * 0.003 - st.land * 0.25) * (1 - a), (-st.swX * 0.7 + bx * 0.5) * (1 - a) + st.yw * (1 - 0.75 * a), (bx * 1.4 - st.swX * 0.5) * (1 - a) + st.rz * (1 - 0.75 * a), 'YXZ')); _wq.multiply(_q2);
+    _kb.copy(m.anchors.ads.position).applyQuaternion(_wq); _wp.x += (_ka.x - _kb.x) * a * 0.55; _wp.y += (_ka.y - _kb.y) * a * 0.55;
+    // weapon switch (dip out of view)
+    const dr = c.drop || 0; if (dr > 0.001) { _wp.x += 0.07 * dr; _wp.y -= 0.34 * dr; _wp.z += 0.1 * dr; _q2.setFromEuler(_eu.set(-0.85 * dr, 0, 0.45 * dr, 'YXZ')); _wq.multiply(_q2); }
+    if (mw) {   /* ===== M4A1 handling layer (MW2019): Active Idle, head-leads / gun-trails look lag, step + jump reaction, smooth stride bob, sprint swing, ADS arc, weighty draw ===== */
+      const g = 1 - 0.85 * a, ph = st.bob, am = st.bobAmp, spA = st.sprW * (1 - a) * rw * (1 - clamp(st.ghW, 0, 1)), iw = (1 - clamp(am * 3, 0, 1)) * (c.reload ? 0.45 : 1) * g, tt = st.t, ab = Math.sin(Math.PI * clamp(a, 0, 1)), p0 = (st._p0 = st._p0 || _wp.clone()).copy(_wp), q0 = (st._q0 = st._q0 || _wq.clone()).copy(_wq);
+      const dr0 = c.drop || 0; if (st.pdr > 0.02 && dr0 <= 0.02 && st.ghW < 0.02) { st.landV += 1.1; st.rotV += 0.4; } st.pdr = dr0;
+      st.jxV += (-190 * st.jx - 15 * st.jxV) * dt + 2 * clamp(c.lookYaw || 0, -0.2, 0.2); st.jx = clamp(st.jx + st.jxV * dt, -0.07, 0.07);
+      st.jyV += (-190 * st.jy - 15 * st.jyV) * dt - 1.6 * clamp(c.lookPitch || 0, -0.2, 0.2); st.jy = clamp(st.jy + st.jyV * dt, -0.06, 0.06);
+      const dvy = clamp((c.vy || 0) - st.pvy, -8, 8); st.pvy = c.vy || 0;
+      st.zyV += (-260 * st.zy - 17 * st.zyV) * dt - 0.05 * dvy; st.zy = clamp(st.zy + st.zyV * dt, -0.03, 0.03);
+      st.idN -= dt * (iw > 0.5 ? 1 : 0); if (st.idN <= 0) { st.idN = 2.5 + Math.random() * 3.5; st.riV += Math.random() < 0.5 ? -1 : 1; }
+      st.riV += (-420 * st.ri - 24 * st.riV) * dt; st.ri += st.riV * dt;
+      const mxi = (Math.sin(tt * 2.3) * 0.5 + Math.sin(tt * 3.7 + 1.3) * 0.35 + Math.sin(tt * 5.9 + 2.1) * 0.15) * 0.0013 * iw, myi = (Math.sin(tt * 2.9 + 0.7) * 0.5 + Math.sin(tt * 4.3) * 0.35 + Math.sin(tt * 7.1 + 0.4) * 0.15) * 0.0011 * iw;
+      _wp.x += Math.sin(ph + 0.3) * 0.0105 * am - bx - st.swX * (1 - 0.7 * a) + mxi + st.jx * 0.22 * g + st.ri * 0.15 * g + Math.sin(ph + 0.2) * 0.012 * spA * am;
+      _wp.y += -(0.5 - 0.5 * Math.cos(2 * ph + 0.35)) * 0.0135 * am - by - st.swY * (1 - 0.7 * a) + myi + st.jy * 0.18 * g + st.zy * g - 0.01 * ab;
+      _wp.z += Math.sin(2 * ph + 0.2) * 0.005 * spA * am;
+      _q2.setFromEuler(_eu.set(Math.cos(2 * ph + 0.9) * 0.01 * am - st.swY * 0.8 * (1 - a) + st.jy * 0.7 * g + st.zy * 1.6 * g + Math.sin(tt * 2.6 + 1.1) * 0.003 * iw,
+        Math.sin(ph) * 0.012 * am + (st.swX * 0.7 - bx * 0.5) * (1 - a) - st.jx * 0.8 * g + Math.sin(ph + 0.9) * 0.05 * spA * am + Math.sin(tt * 3.3) * 0.003 * iw,
+        -Math.sin(ph + 0.9) * 0.02 * am + (st.swX * 0.5 - bx * 1.4) * (1 - a) - st.jx * 0.6 * g + st.ri * g + Math.sin(tt * 3.1 + 0.5) * 0.0035 * iw - Math.sin(ph + 0.4) * 0.05 * spA * am + 0.05 * ab, 'YXZ')); _wq.multiply(_q2);
+      if (st.ghW > 0.001) { const w = clamp(st.ghW, 0, 1); _wp.lerp(p0, w); _wq.slerp(q0, w); }   /* sprint-hipfire (Gung-Ho) keeps the stock motion */
+    }
+    wpn.position.copy(_wp); wpn.quaternion.copy(_wq); wpn.updateMatrix();
+    if (st.insFl) { wpn.position.copy(_ifp); wpn.quaternion.copy(_ifq); wpn.updateMatrix(); }   /* inspect toss: the knife flies free of the (stationary) hand */
+    if (m._beam && !st.insFl) aimBeam(m, wpn, c, dt);
+
+    /* ===== Akimbo: the left-hand gun. Same base pose as the right gun, mirrored; its own reload, recoil and flash; the left arm holds it ===== */
+    let akHold = null;
+    if (akOn) {
+      const mL = curL;
+      WeaponAnim.resetState(SL);
+      if (c.reloadL) WeaponAnim.reloadAk(mL, c.reloadL.t / c.reloadL.dur, SL, c.reloadL.empty);
+      if (SL.slide === 0 && mL.parts.slide) SL.slide = c.akEmpty ? 1 : clamp(stL.flashT < 0.09 ? 1 - stL.flashT / 0.09 : 0, 0, 1);
+      WeaponAnim.apply(mL, SL);
+      _lp.copy(_bp); _lq.copy(_bq);
+      if (SL.roll || SL.pitch || SL.yaw) { _q2.setFromEuler(_eu.set(SL.pitch, SL.yaw, SL.roll, 'YXZ')); _lq.multiply(_q2); }
+      _lp.x += SL.sx; _lp.y += SL.sy; _lp.z += SL.sz;
+      _lp.x += -(bx + st.swX); _lp.y += by + br * 0.0022 + st.swY - st.land * 0.05; _lp.z += stL.kick + stL.sz; _lp.x += stL.kx; _lp.y += stL.ky;
+      _q2.setFromEuler(_eu.set(stL.rot + stL.sr + st.swY * 0.8 + br * 0.003 - st.land * 0.25, (st.swX * 0.7 - bx * 0.5) + stL.yw, (st.swX * 0.5 - bx * 1.4) + stL.rz, 'YXZ')); _lq.multiply(_q2);
+      if (gw > 0.001) { const gb = gw * st.bobAmp, g2 = st.bob * 2; _lp.x += Math.sin(st.bob) * 0.01 * gb; _lp.y += Math.sin(g2 + 0.4) * 0.007 * gb; _q2.setFromEuler(_eu.set(Math.cos(g2) * 0.028 * gb, Math.sin(st.bob) * 0.03 * gb, Math.sin(st.bob) * 0.05 * gb, 'YXZ')); _lq.multiply(_q2); }   /* Gung-Ho run-and-gun: the left gun bounces and rolls with the stride, a mirror image of the right one (the final mirror below flips x / yaw / roll) */
+      const dl = Math.max(dr, st.thrW); if (dl > 0.001) { _lp.x -= 0.07 * dl; _lp.y -= 0.34 * dl; _lp.z += 0.1 * dl; _q2.setFromEuler(_eu.set(-0.85 * dl, 0, -0.45 * dl, 'YXZ')); _lq.multiply(_q2); }
+      wpnL.position.set(-_lp.x, _lp.y, _lp.z); wpnL.quaternion.set(_lq.x, -_lq.y, -_lq.z, _lq.w); wpnL.scale.set(-1, 1, 1); wpnL.updateMatrix();
+      const hm = mL.holdMir; akHold = hm;
+      _lw.copy(hm.W).applyQuaternion(wpnL.quaternion).add(wpnL.position); _lX.copy(hm.X).applyQuaternion(wpnL.quaternion); _lY.copy(hm.Y).applyQuaternion(wpnL.quaternion); _lZ.copy(hm.Z).applyQuaternion(wpnL.quaternion);
+      if (mL._beam) { const bm = mL._beam, LL = Math.min(c.laserDist === undefined ? 7.5 : c.laserDist, 7.5); bm.g.visible = !c.hide; bm.rib.scale.z = LL; bm.dot.position.z = -LL; bm.dot.visible = LL < 7.4; aimBeam(mL, wpnL, c, dt); }
+    }
+    // arms: hold poses (weapon-local) -> camera space
+    const hd = m.hold, hr = hd.r, hl = hd.l;
+    _P.copy(hr.W); if (S.rhW > 0) _P.addScaledVector(_dv.subVectors(S.rh, m.anchors.gripR.position), S.rhW); _P.applyQuaternion(_wq).add(_wp);
+    _P2.copy(hl.W); if (S.lhW > 0) _P2.addScaledVector(_dv.subVectors(S.lh, m.anchors.gripL.position), S.lhW); _P2.applyQuaternion(_wq).add(_wp);
+    _B[0].copy(hr.X).applyQuaternion(_wq); _B[1].copy(hr.Y).applyQuaternion(_wq); _B[2].copy(hr.Z).applyQuaternion(_wq);
+    _B[3].copy(hl.X).applyQuaternion(_wq); _B[4].copy(hl.Y).applyQuaternion(_wq); _B[5].copy(hl.Z).applyQuaternion(_wq);
+    /* sliding / diving without aiming: gun in the right hand only, left hand free (reaching ahead in a dive, planted on the ground in a slide); aiming puts both hands back on the gun */
+    const fwt = st.slideW + st.diveW + st.vaultW, fw = m.melee ? 1 : Math.min(1, fwt) * (1 - a) * rw;
+    if (m.melee) { _fh.set(-0.23 + st.swX * 0.6, -0.36 + by * 0.6 - dr * 0.3 - st.land * 0.04, -0.3); _fpn.set(0.3, -0.85, -0.35).normalize(); if (st.insLW > 0.002) { _fh.lerp(_ihT, st.insLW); _fpn.lerp(_ihN, st.insLW).normalize(); } }   // knife: left hand hangs relaxed at the lower left (inspect: it comes in to the blade)
+    else if (fw > 0.001) {
+      const ws = st.slideW / fwt, wd = st.diveW / fwt, wv = st.vaultW / fwt, vp = c.vp || 0, vsm = (e0, e1, x) => { const q = Math.min(1, Math.max(0, (x - e0) / (e1 - e0))); return q * q * (3 - 2 * q); }, vpl = vsm(0, 0.28, vp) * (1 - vsm(0.6, 0.95, vp));   /* vault: the free left hand reaches down, plants on the obstacle, then pushes off */
+      _fh.set(FH_S.x * ws + FH_D.x * wd + (-0.22 - 0.05 * vpl) * wv, FH_S.y * ws + FH_D.y * wd + Math.sin(st.t * 9) * 0.012 * ws + (-0.3 - 0.14 * vpl) * wv, FH_S.z * ws + FH_D.z * wd + (-0.35 - 0.12 * vpl) * wv);
+      _fpn.set(FPN_S.x * (ws + wv) + FPN_D.x * wd, FPN_S.y * (ws + wv) + FPN_D.y * wd, FPN_S.z * (ws + wv) + FPN_D.z * wd).normalize();
+    } else { _fh.copy(_P2); _fpn.copy(_B[5]); }
+    /* gung-ho run swing: the left fist pumps like a runner's, locked to the stride (back at the hip -> forward and up at the lower left of the view); reloading puts the hand back on the gun */
+    let fwG = fw;
+    if (gw > 0.001) {
+      const sg = Math.sin(st.bob + 0.6) * (0.4 + 0.6 * st.bobAmp), u = 0.5 + 0.5 * sg;
+      _gh.set(-0.255 + 0.055 * u, -0.225 + 0.125 * u + Math.cos(st.bob * 2) * 0.008 * st.bobAmp, -0.24 - 0.1 * u); _gpn.set(0.9, 0.15 + 0.3 * u, -0.25).normalize();
+      if (fw > 0.001) { const kg = gw / (gw + fw); _fh.lerp(_gh, kg); _fpn.lerp(_gpn, kg).normalize(); fwG = Math.min(1, fw + gw * (1 - fw)); } else { _fh.copy(_gh); _fpn.copy(_gpn); fwG = gw; }
+    }
+    /* grenade throw: the left hand lets go of the gun and drops off-screen to where the throwing arm (Equipment) starts and ends; the right hand keeps the gun for one-handed hipfire */
+    let fwF = fwG; const tw = st.thrW;
+    if (tw > 0.001) { if (fwG > 0.001) _fh.set(_fh.x + (-0.30 - _fh.x) * tw, _fh.y + (-0.62 - _fh.y) * tw, _fh.z + (-0.20 - _fh.z) * tw); else { _fh.set(-0.30, -0.62, -0.20); _fpn.set(0.3, -0.85, -0.35).normalize(); } fwF = fwG + (1 - fwG) * tw; }
+    armIK(1, _P, _B[0], _B[1], _B[2], _P, _B[2], 0, dt); if (akHold) armIK(0, _lw, _lX, _lY, _lZ, _lw, _lZ, 0, dt); else armIK(0, _P2, _B[3], _B[4], _B[5], _fh, _fpn, fwF > 0.001 ? fwF : 0, dt);
+    { let hh = hr, fi = clamp(S.rhW * 2, 0, 1);
+      if (st.insW > 0.002 && hr.curl) { const ow = clamp(st.insOpen + st.insLoose, 0, 1), ti = st.insTight; for (let f = 0; f < 5; f++) for (let j = 0; j < 3; j++) { const g = hr.curl[f][j], o = INS_OPEN[f][j]; _insHold.curl[f][j] = g + (o - g) * ow + (FIST[j] - g) * ti * (1 - ow); } _insHold.thumbZ = 0.5 * st.insOpen; hh = _insHold; fi = 0; }
+      updateFingers(1, hh, 0, fi, dt); }
+    if (akHold) updateFingers(0, akHold, 0, 0, dt, 0); else updateFingers(0, hl, fwF, clamp(S.lhW * 2, 0, 1), dt, gw * 0.85 - 0.5 * st.insLW);
+    const hide = !!c.hide; if (hide !== hideW) { hideW = hide; wpn.visible = !hide; for (let i = 0; i < 2; i++) UA[i].visible = !hide; }
+    { const lv = !hideW && st.thrW < 0.9; if (UA[0].visible !== lv) UA[0].visible = lv; }   /* the throwing arm draws the left hand while a grenade is out */
+    if (wpnL) wpnL.visible = !!akHold && !hideW && st.thrW < 0.9;   /* Akimbo: the left gun hides while a grenade / knife is out */
+  }
+
+  function render(renderer) { if (!vis || !cur && false) return; renderer.clearDepth(); renderer.render(scene, cam); }
+  function setVisible(b) { vis = !!b; }
+  function setShade(k) { st.shadeTarget = clamp(k, 0, 1); }
+  function setEnv(e) {   // swap lighting when the map changes
+    env = e; if (!scene || !e) return;
+    if (e.texture) scene.environment = e.texture;
+    sun.color.copy(e.sunColor); sun.intensity = e.sunIntensity; sun.position.copy(e.sunDir).multiplyScalar(5);
+    hemi.color.copy(e.hemiSky); hemi.groundColor.copy(e.hemiGround); hemi.intensity = e.hemiIntensity;
+    st.baseSun = sun.intensity; st.baseHemi = hemi.intensity;
+  }
+  function anchorWorld(name, out, left) { const mm = left ? curL : cur; if (!mm) return null; cam.updateMatrixWorld(true); (left ? wpnL : wpn).updateMatrixWorld(true); mm.anchors[name].getWorldPosition(out); return out; }
+  function anchorDir(name, out) { if (!cur) return null; cur.anchors[name].getWorldQuaternion(_wq); out.set(0, 0, -1).applyQuaternion(_wq); return out; }
+  return { init, setEnv, setOperator, setWeapon, setLeft, fire, swing, hitStop, inspect: { dur: INS_DUR, beats: INS_BEATS, cam: inspectCam }, sync, update, render, setVisible, setShade, anchorWorld, anchorDir, get camera() { return cam; }, get scene() { return scene; }, get weaponId() { return curId; }, get model() { return cur; } };
+})();
+
+/* ===== 60_audio.js ===== */
+/* ============================================================================
+   60_audio.js — fully procedural Web Audio. All sounds are synthesized once into AudioBuffers
+   (32 kHz mono), then played through cheap per-voice chains (source -> lowpass -> gain -> stereo pan -> master).
+   Positional attenuation / panning is computed manually from the listener pose (no PannerNode cost).
+   ============================================================================ */
+const Sound = (function () {
+  'use strict';
+  const SR = 32000, TAU = Math.PI * 2, clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+  let ctx = null, master = null, ready = false, initP = null, vol = 0.8, ambTimer = 0, ambOn = false;
+  /* zombies-mode footstep reverb: a shared convolution bus (revIn) fed by a per-step send. STEP_REVERB = send level (0 = off, ~0.3 subtle, ~0.7 cavernous) */
+  let revIn = null, STEP_REVERB = 0.5;
+  /* FORCE_CONCRETE: in zombies mode only (body.zmOnly), every ground-movement sound (footsteps, jump / land, slide, prone drop, crawl, slide loop) plays its concrete version, whatever the ground material. Bullet impacts are NOT affected. Multiplayer keeps per-surface sounds. */
+  let FORCE_CONCRETE = true;
+  const forceConcrete = () => FORCE_CONCRETE && document.body.classList.contains('zmOnly');
+  const B = {}, RAW = {}, loops = {}, voices = [];
+  const L = { px: 0, py: 0, pz: 0, fx: 0, fy: 0, fz: -1, rx: 1, ry: 0, rz: 0 };
+  const CLS = { ak: 'rifle', m4: 'rifle', mp5: 'rifle', deagle: 'pistol', m1911: 'pistol', shotgun: 'shotgun', m60: 'lmg', awp: 'sniper', knife: 'pistol' };
+  const CATS = {
+    gun: { ref: 7, roll: 1.0, max: 170, lp: 34, gain: 1 }, step: { ref: 1.6, roll: 1.25, max: 30, lp: 0, gain: 1 }, mech: { ref: 2, roll: 1.5, max: 20, lp: 0, gain: 1 },
+    imp: { ref: 3, roll: 1.2, max: 70, lp: 60, gain: 1 }, misc: { ref: 3, roll: 1.0, max: 80, lp: 0, gain: 1 }
+  };
+
+  /* ------------------------------------------------------------------ DSP kit */
+  let seed = 1;
+  function rnd() { seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; return ((seed >>> 0) / 4294967296) * 2 - 1; }
+  const alloc = (sec) => new Float32Array(Math.max(1, Math.floor(sec * SR)));
+  function nburst(o, t0, dur, amp, decay, hp, lp) {
+    const n0 = Math.floor(t0 * SR), n = Math.min(o.length - n0, Math.floor(dur * SR)); if (n <= 0) return;
+    const ah = hp ? Math.exp(-TAU * hp / SR) : 0, al = lp ? 1 - Math.exp(-TAU * lp / SR) : 1; let yl = 0, xp = 0, yh = 0;
+    for (let i = 0; i < n; i++) { let x = rnd(); if (hp) { yh = ah * (yh + x - xp); xp = x; x = yh; } yl += al * (x - yl); o[n0 + i] += (lp ? yl : x) * amp * Math.exp(-i / SR / decay); }
+  }
+  function ring(o, t0, f, amp, decay) {
+    const n0 = Math.floor(t0 * SR), n = Math.min(o.length - n0, Math.floor(decay * 7 * SR)); for (let i = 0; i < n; i++) o[n0 + i] += Math.sin(TAU * f * i / SR) * amp * Math.exp(-i / SR / decay);
+  }
+  function thump(o, t0, f0, f1, tau, amp, decay) {
+    const n0 = Math.floor(t0 * SR), n = Math.min(o.length - n0, Math.floor(decay * 6 * SR)); let ph = 0;
+    for (let i = 0; i < n; i++) { const t = i / SR; ph += TAU * (f1 + (f0 - f1) * Math.exp(-t / tau)) / SR; o[n0 + i] += Math.sin(ph) * amp * Math.exp(-t / decay); }
+  }
+  function sweep(o, t0, dur, amp, fa, fb, Q) {
+    const n0 = Math.floor(t0 * SR), n = Math.min(o.length - n0, Math.floor(dur * SR)); let low = 0, band = 0; if (n <= 0) return;
+    for (let i = 0; i < n; i++) { const u = i / n, fc = fa + (fb - fa) * u, f = 2 * Math.sin(Math.PI * Math.min(fc, SR * 0.22) / SR), x = rnd(); low += f * band; const high = x - low - band / Q; band += f * high; o[n0 + i] += band * amp * Math.sin(Math.PI * u); }
+  }
+  function tick(o, t0, amp, f, decay) { nburst(o, t0, 0.012, amp, 0.0015, 1500, 0); ring(o, t0, f, amp * 0.5, decay); }
+  function voice(o, t0, dur, f0, f1, amp, F1, F2) {
+    const n0 = Math.floor(t0 * SR), n = Math.min(o.length - n0, Math.floor(dur * SR)); let ph = 0;
+    for (let i = 0; i < n; i++) {
+      const u = i / n, f = f0 + (f1 - f0) * u; ph += TAU * f / SR; let s = 0;
+      for (let h = 1; h <= 14; h++) { const hf = h * f; s += Math.sin(ph * h) * (Math.exp(-Math.pow((hf - F1) / 260, 2)) + 0.55 * Math.exp(-Math.pow((hf - F2) / 380, 2))) / Math.sqrt(h); }
+      o[n0 + i] += (s * 0.35 + rnd() * 0.18) * amp * Math.sin(Math.PI * Math.pow(u, 0.6)) ;
+    }
+  }
+  function fin(o, drive, peak) {
+    const n = o.length; let mx = 0;
+    for (let i = 0; i < n; i++) { const v = Math.tanh(o[i] * drive); o[i] = v; const a = v < 0 ? -v : v; if (a > mx) mx = a; }
+    const k = peak / (mx || 1), fi = Math.floor(0.0004 * SR), fo = Math.min(n >> 1, Math.floor(0.02 * SR));
+    for (let i = 0; i < n; i++) { let g = k; if (i < fi) g *= i / fi; if (i > n - fo) g *= (n - i) / fo; o[i] *= g; }
+    return o;
+  }
+  function loopify(o, x) { const n = o.length - x; for (let i = 0; i < x; i++) { const w = i / x; o[i] = o[i] * w + o[n + i] * (1 - w); } return o.subarray(0, n); }
+
+  /* ------------------------------------------------------------------ gunshots */
+  function gun(p, sd) {
+    const o = alloc(p.dur); seed = sd | 0 || 7;
+    nburst(o, 0, 0.05, p.crack, p.crackDecay, p.crackHP, 11000);
+    thump(o, 0, p.f0, p.f1, p.sweep, p.body, p.bodyDecay); if (p.sub) thump(o, 0, p.f0 * 0.5, p.f1 * 0.6, p.sweep * 1.4, p.sub, p.bodyDecay * 1.5);
+    { let yl = 0; for (let i = 0; i < o.length; i++) { const t = i / SR, fc = p.tl1 + (p.tl0 - p.tl1) * Math.exp(-t / 0.22), a = 1 - Math.exp(-TAU * fc / SR); yl += a * (rnd() - yl); o[i] += yl * p.tail * Math.exp(-t / p.tailDecay) * (t < 0.003 ? t / 0.003 : 1); } }
+    if (p.blast) nburst(o, 0, 0.2, p.blast, p.blastDecay, 120, 2600);
+    if (p.ring) ring(o, 0.0005, p.ring, p.ringAmp, p.ringDecay);
+    if (p.echo) { const src = Float32Array.from(o); for (const e of p.echo) { const dn = Math.floor(e[0] * SR), a = 1 - Math.exp(-TAU * e[2] / SR); let yl = 0; for (let i = 0; i + dn < o.length; i++) { yl += a * (src[i] - yl); o[i + dn] += yl * e[1]; } } }
+    return fin(o, p.drive, p.peak);
+  }
+  const GUNS = {
+    ak: { dur: 1.0, crack: 1.0, crackDecay: 0.0035, crackHP: 1800, f0: 170, f1: 62, sweep: 0.028, body: 0.9, bodyDecay: 0.085, tail: 0.42, tailDecay: 0.32, tl0: 3800, tl1: 650, blast: 0.55, blastDecay: 0.03, echo: [[0.09, 0.16, 1800], [0.19, 0.09, 1200]], drive: 1.8, peak: 0.92 },
+    m4: { dur: 0.85, crack: 1.0, crackDecay: 0.0026, crackHP: 2600, f0: 240, f1: 90, sweep: 0.02, body: 0.7, bodyDecay: 0.06, tail: 0.36, tailDecay: 0.26, tl0: 5200, tl1: 900, blast: 0.5, blastDecay: 0.022, ring: 1900, ringAmp: 0.08, ringDecay: 0.02, echo: [[0.08, 0.12, 2200]], drive: 1.7, peak: 0.9 },
+    mp5: { dur: 0.65, crack: 0.9, crackDecay: 0.002, crackHP: 3200, f0: 300, f1: 130, sweep: 0.014, body: 0.5, bodyDecay: 0.045, tail: 0.3, tailDecay: 0.18, tl0: 6000, tl1: 1200, blast: 0.4, blastDecay: 0.016, ring: 2400, ringAmp: 0.12, ringDecay: 0.012, drive: 1.6, peak: 0.82 },
+    deagle: { dur: 2.0, crack: 1.2, crackDecay: 0.0045, crackHP: 1200, f0: 130, f1: 42, sweep: 0.05, body: 1.2, bodyDecay: 0.22, sub: 0.6, tail: 0.55, tailDecay: 0.85, tl0: 3200, tl1: 420, blast: 0.8, blastDecay: 0.05, ring: 1300, ringAmp: 0.12, ringDecay: 0.06, echo: [[0.13, 0.34, 1500], [0.27, 0.2, 1000], [0.5, 0.1, 700]], drive: 2.2, peak: 0.97 },
+    m1911: { dur: 0.8, crack: 1.1, crackDecay: 0.0022, crackHP: 2800, f0: 320, f1: 120, sweep: 0.015, body: 0.65, bodyDecay: 0.05, tail: 0.34, tailDecay: 0.3, tl0: 5000, tl1: 900, blast: 0.5, blastDecay: 0.02, ring: 3100, ringAmp: 0.18, ringDecay: 0.04, echo: [[0.11, 0.12, 1600]], drive: 1.8, peak: 0.88 },
+    shotgun: { dur: 1.7, crack: 1.0, crackDecay: 0.006, crackHP: 900, f0: 105, f1: 44, sweep: 0.045, body: 1.1, bodyDecay: 0.17, sub: 0.45, tail: 0.5, tailDecay: 0.62, tl0: 2800, tl1: 380, blast: 1.1, blastDecay: 0.075, echo: [[0.12, 0.25, 1400], [0.26, 0.14, 900]], drive: 2.0, peak: 0.96 },
+    m60: { dur: 1.1, crack: 0.95, crackDecay: 0.004, crackHP: 1400, f0: 112, f1: 38, sweep: 0.04, body: 1.1, bodyDecay: 0.14, sub: 0.5, tail: 0.45, tailDecay: 0.42, tl0: 3000, tl1: 450, blast: 0.8, blastDecay: 0.045, echo: [[0.1, 0.18, 1500], [0.2, 0.1, 1000]], drive: 2.0, peak: 0.95 },
+    awp: { dur: 3.2, crack: 1.4, crackDecay: 0.006, crackHP: 1000, f0: 150, f1: 46, sweep: 0.05, body: 1.2, bodyDecay: 0.28, sub: 0.5, tail: 0.55, tailDecay: 1.3, tl0: 3500, tl1: 350, blast: 0.9, blastDecay: 0.06, ring: 900, ringAmp: 0.1, ringDecay: 0.1, echo: [[0.18, 0.4, 1400], [0.4, 0.28, 900], [0.72, 0.16, 650], [1.1, 0.08, 500]], drive: 2.4, peak: 0.98 }
+  };
+
+  /* ------------------------------------------------------------------ mechanical */
+  const MC = { rifle: { p: 1, h: 1 }, pistol: { p: 1.3, h: 0.7 }, shotgun: { p: 0.85, h: 1.2 }, lmg: { p: 0.65, h: 1.5 }, sniper: { p: 0.9, h: 1.1 } };
+  const EVENTS = ['dry', 'magout', 'magin', 'chamber', 'boltback', 'boltfwd', 'pumpback', 'pumpfwd', 'shellin', 'beltopen', 'beltclose', 'draw', 'holster', 'scopein', 'scopeout'];
+  function mech(ev, c, k) {
+    const p = c.p, h = c.h; seed = 100 + k * 37; let o, pk = 0.5;
+    switch (ev) {
+      case 'dry': o = alloc(0.16); tick(o, 0, 0.9, 2000 * p, 0.012); ring(o, 0, 700 * p, 0.25, 0.02); pk = 0.45; break;
+      case 'magout': o = alloc(0.3); tick(o, 0, 0.7, 2300 * p, 0.01); sweep(o, 0.01, 0.09, 0.35 * h, 1500 * p, 700 * p, 3); thump(o, 0.1, 160 * p, 90 * p, 0.02, 0.35 * h, 0.04); tick(o, 0.11, 0.35, 1400 * p, 0.012); break;
+      case 'magin': o = alloc(0.3); sweep(o, 0, 0.07, 0.3 * h, 700 * p, 1500 * p, 3); thump(o, 0.07, 170 * p, 80 * p, 0.02, 0.8 * h, 0.05); tick(o, 0.07, 0.8, 2000 * p, 0.012); ring(o, 0.07, 900 * p, 0.2, 0.05); tick(o, 0.11, 0.3, 1600 * p, 0.01); pk = 0.6; break;
+      case 'chamber': o = alloc(0.25); sweep(o, 0, 0.05, 0.3 * h, 800 * p, 2000 * p, 3); thump(o, 0.055, 150 * p, 70 * p, 0.02, 0.9 * h, 0.05); tick(o, 0.055, 0.9, 1700 * p, 0.02); ring(o, 0.056, 2900 * p, 0.15, 0.03); pk = 0.6; break;
+      case 'boltback': o = alloc(0.3); for (let i = 0; i < 6; i++) tick(o, i * 0.012, 0.25 * h, (1800 + i * 160) * p, 0.006); sweep(o, 0, 0.1, 0.35 * h, 600 * p, 2200 * p, 2.5); thump(o, 0.11, 130 * p, 70 * p, 0.02, 0.7 * h, 0.05); tick(o, 0.11, 0.7, 1500 * p, 0.02); break;
+      case 'boltfwd': o = alloc(0.3); sweep(o, 0, 0.06, 0.25 * h, 2200 * p, 800 * p, 2.5); thump(o, 0.065, 150 * p, 60 * p, 0.02, 1.0 * h, 0.06); tick(o, 0.065, 1, 1300 * p, 0.03); ring(o, 0.066, 2500 * p, 0.2, 0.04); pk = 0.65; break;
+      case 'pumpback': o = alloc(0.34); sweep(o, 0, 0.14, 0.4 * h, 500 * p, 1900 * p, 2.5); for (let i = 0; i < 5; i++) tick(o, 0.02 + i * 0.022, 0.18, (1100 + i * 200) * p, 0.007); thump(o, 0.15, 120 * p, 62 * p, 0.02, 0.8 * h, 0.06); tick(o, 0.15, 0.8, 1200 * p, 0.03); break;
+      case 'pumpfwd': o = alloc(0.32); sweep(o, 0, 0.09, 0.3 * h, 1900 * p, 600 * p, 2.5); thump(o, 0.1, 110 * p, 52 * p, 0.02, 1.1 * h, 0.07); tick(o, 0.1, 1, 1000 * p, 0.035); ring(o, 0.1, 2200 * p, 0.2, 0.05); pk = 0.7; break;
+      case 'shellin': o = alloc(0.2); ring(o, 0, 1200 * p, 0.7, 0.018); thump(o, 0, 240 * p, 140 * p, 0.01, 0.6, 0.02); tick(o, 0.002, 0.5, 2400 * p, 0.008); sweep(o, 0.01, 0.04, 0.12, 900, 500, 3); pk = 0.42; break;
+      case 'beltopen': o = alloc(0.45); ring(o, 0, 420, 0.5, 0.09); ring(o, 0, 910, 0.35, 0.08); ring(o, 0, 1620, 0.2, 0.05); nburst(o, 0, 0.05, 0.6, 0.01, 400, 5000); thump(o, 0.0, 130, 70, 0.02, 0.6, 0.06); pk = 0.7; break;
+      case 'beltclose': o = alloc(0.5); thump(o, 0, 120, 55, 0.02, 1.0, 0.08); ring(o, 0, 700, 0.4, 0.07); ring(o, 0, 1400, 0.3, 0.05); nburst(o, 0, 0.04, 0.7, 0.008, 300, 6000); for (let i = 0; i < 8; i++) tick(o, 0.06 + Math.abs(rnd()) * 0.2, 0.2, 1500 + Math.abs(rnd()) * 1500, 0.008); pk = 0.75; break;
+      case 'draw': o = alloc(0.28); sweep(o, 0, 0.12, 0.3, 700, 2400, 1.5); thump(o, 0.12, 140 * p, 80 * p, 0.02, 0.4 * h, 0.04); tick(o, 0.12, 0.6, 1300 * p, 0.015); ring(o, 0.12, 2500 * p, 0.08, 0.03); pk = 0.5; break;
+      case 'holster': o = alloc(0.26); sweep(o, 0, 0.1, 0.28, 2000, 600, 1.5); thump(o, 0.1, 120 * p, 70 * p, 0.02, 0.5 * h, 0.05); tick(o, 0.1, 0.4, 1000 * p, 0.015); pk = 0.4; break;
+      case 'scopein': o = alloc(0.28); tick(o, 0, 0.5, 2200, 0.01); sweep(o, 0.01, 0.2, 0.3, 1800, 3800, 6); pk = 0.35; break;
+      default: o = alloc(0.28); tick(o, 0, 0.5, 2200, 0.01); sweep(o, 0.01, 0.2, 0.3, 3800, 1800, 6); pk = 0.35; break; // scopeout
+    }
+    return fin(o, 1.2, pk);
+  }
+
+  /* ------------------------------------------------------------------ misc sounds */
+  const SD = (n) => { seed = n; };
+  const MISC = {
+    step_concrete: (v) => { SD(200 + v); const o = alloc(0.2); nburst(o, 0, 0.1, 0.9, 0.018, 400 + v * 60, 2600); thump(o, 0, 110 - v * 8, 60, 0.02, 0.5, 0.05); tick(o, 0, 0.25, 1800 + v * 150, 0.006); return fin(o, 1.3, 0.38); },
+    step_metal: (v) => { SD(210 + v); const o = alloc(0.32); nburst(o, 0, 0.06, 0.6, 0.012, 800, 6000); ring(o, 0, 520 + v * 30, 0.35, 0.08); ring(o, 0, 1180 + v * 40, 0.25, 0.06); ring(o, 0, 2400, 0.12, 0.04); thump(o, 0, 130, 70, 0.02, 0.5, 0.04); return fin(o, 1.3, 0.42); },
+    step_dirt: (v) => { SD(220 + v); const o = alloc(0.2); nburst(o, 0, 0.12, 0.9, 0.035, 0, 900 + v * 80); thump(o, 0, 80, 55, 0.02, 0.6, 0.07); nburst(o, 0.02, 0.05, 0.25, 0.01, 1200, 3500); return fin(o, 1.2, 0.34); },
+    step_tile: (v) => { SD(230 + v); const o = alloc(0.22); nburst(o, 0, 0.04, 0.9, 0.008, 1500, 7000); ring(o, 0, 3100 + v * 100, 0.2, 0.02); thump(o, 0, 120, 80, 0.015, 0.4, 0.04); tick(o, 0.0, 0.5, 2200, 0.01); return fin(o, 1.3, 0.4); },
+    step_wood: (v) => { SD(240 + v); const o = alloc(0.24); thump(o, 0, 220 - v * 10, 130, 0.02, 0.7, 0.06); ring(o, 0, 380 + v * 20, 0.25, 0.05); nburst(o, 0, 0.05, 0.5, 0.012, 300, 2200); return fin(o, 1.2, 0.4); },
+    jump: () => { SD(251); const o = alloc(0.22); sweep(o, 0, 0.18, 0.5, 500, 1800, 1.2); thump(o, 0, 120, 70, 0.02, 0.2, 0.04); return fin(o, 1.1, 0.3); },
+    land: () => { SD(252); const o = alloc(0.28); thump(o, 0, 110, 52, 0.03, 0.9, 0.09); nburst(o, 0, 0.1, 0.5, 0.03, 200, 1500); tick(o, 0.02, 0.2, 1100, 0.01); return fin(o, 1.2, 0.5); },
+    land_hard: () => { SD(253); const o = alloc(0.5); thump(o, 0, 100, 40, 0.04, 1.2, 0.14); nburst(o, 0, 0.18, 0.7, 0.05, 150, 1800); for (let i = 0; i < 6; i++) tick(o, 0.03 + Math.abs(rnd()) * 0.2, 0.2, 1200 + Math.abs(rnd()) * 1800, 0.008); return fin(o, 1.3, 0.7); },
+    slide_start: () => { SD(254); const o = alloc(0.5); sweep(o, 0, 0.42, 0.7, 2600, 900, 1.6); nburst(o, 0, 0.2, 0.2, 0.08, 300, 1400); thump(o, 0, 100, 60, 0.03, 0.3, 0.06); return fin(o, 1.1, 0.5); },
+    dive: () => { SD(255); const o = alloc(0.5); sweep(o, 0, 0.44, 0.7, 500, 2200, 1.3); nburst(o, 0, 0.3, 0.2, 0.1, 150, 900); return fin(o, 1.1, 0.5); },
+    knife_swing: () => { SD(271); const o = alloc(0.34); sweep(o, 0, 0.24, 0.55, 1500, 4600, 1.6); nburst(o, 0.01, 0.2, 0.22, 0.07, 1200, 6500); return fin(o, 1.1, 0.4); },
+    dive_land: () => { SD(256); const o = alloc(0.7); thump(o, 0, 95, 42, 0.04, 1.2, 0.16); sweep(o, 0.02, 0.3, 0.4, 1800, 700, 1.4); for (let i = 0; i < 8; i++) tick(o, 0.04 + Math.abs(rnd()) * 0.3, 0.22, 1200 + Math.abs(rnd()) * 1800, 0.01); return fin(o, 1.3, 0.8); },
+    mantle: () => { SD(257); const o = alloc(0.5); sweep(o, 0, 0.14, 0.4, 700, 1900, 1.3); thump(o, 0.12, 120, 70, 0.02, 0.6, 0.05); thump(o, 0.26, 100, 60, 0.02, 0.8, 0.07); nburst(o, 0.25, 0.1, 0.3, 0.04, 200, 1600); return fin(o, 1.2, 0.5); },
+    hit_marker: () => { SD(260); const o = alloc(0.12); nburst(o, 0, 0.01, 0.8, 0.002, 3000, 0); ring(o, 0, 2400, 0.55, 0.014); ring(o, 0, 4800, 0.25, 0.01); return fin(o, 1.2, 0.5); },
+    hit_head: () => { SD(261); const o = alloc(0.2); nburst(o, 0, 0.01, 0.9, 0.002, 3500, 0); ring(o, 0, 3600, 0.5, 0.03); ring(o, 0, 5400, 0.35, 0.025); ring(o, 0.0, 1800, 0.25, 0.03); return fin(o, 1.2, 0.6); },
+    kill: () => { SD(262); const o = alloc(0.6); ring(o, 0, 880, 0.6, 0.12); ring(o, 0.07, 1320, 0.55, 0.16); thump(o, 0, 110, 70, 0.02, 0.6, 0.08); nburst(o, 0, 0.01, 0.5, 0.002, 3000, 0); return fin(o, 1.1, 0.6); },
+    hurt: () => { SD(263); const o = alloc(0.4); voice(o, 0, 0.3, 150, 105, 0.8, 650, 1100); nburst(o, 0, 0.25, 0.15, 0.1, 500, 3000); thump(o, 0, 100, 60, 0.02, 0.3, 0.05); return fin(o, 1.1, 0.5); },
+    death: () => { SD(264); const o = alloc(0.9); voice(o, 0, 0.55, 130, 70, 0.8, 520, 900); thump(o, 0.42, 90, 45, 0.03, 0.9, 0.12); nburst(o, 0.4, 0.25, 0.4, 0.07, 150, 1500); return fin(o, 1.2, 0.6); },
+    pickup_weapon: () => { SD(265); const o = alloc(0.3); sweep(o, 0, 0.06, 0.3, 800, 1800, 3); thump(o, 0.07, 150, 80, 0.02, 0.7, 0.05); tick(o, 0.07, 0.8, 1500, 0.02); ring(o, 0.07, 2600, 0.18, 0.04); tick(o, 0.14, 0.5, 2000, 0.015); return fin(o, 1.2, 0.55); },
+    pickup_ammo: () => { SD(266); const o = alloc(0.3); for (let i = 0; i < 7; i++) tick(o, i * 0.022 + Math.abs(rnd()) * 0.01, 0.35, 1500 + Math.abs(rnd()) * 2200, 0.01); thump(o, 0, 160, 90, 0.02, 0.35, 0.04); return fin(o, 1.2, 0.5); },
+    whiz: (v) => { SD(270 + v); const o = alloc(0.26); sweep(o, 0, 0.2, 0.9, v ? 5200 : 4300, v ? 1100 : 1500, 3); sweep(o, 0.0, 0.2, 0.25, 1200, 400, 1.3); return fin(o, 1.1, 0.5); },
+    impact_concrete: () => { SD(280); const o = alloc(0.3); nburst(o, 0, 0.1, 0.9, 0.02, 600, 5500); ring(o, 0, 1800, 0.25, 0.01); thump(o, 0, 160, 80, 0.02, 0.4, 0.04); for (let i = 0; i < 5; i++) tick(o, 0.03 + Math.abs(rnd()) * 0.15, 0.18, 1800 + Math.abs(rnd()) * 2500, 0.006); return fin(o, 1.2, 0.5); },
+    impact_metal: () => { SD(281); const o = alloc(0.5); nburst(o, 0, 0.02, 0.9, 0.004, 1500, 0); ring(o, 0, 1100, 0.5, 0.12); ring(o, 0, 2300, 0.4, 0.09); ring(o, 0, 3700, 0.25, 0.06); ring(o, 0.0, 640, 0.3, 0.1); return fin(o, 1.2, 0.55); },
+    impact_wood: () => { SD(282); const o = alloc(0.3); thump(o, 0, 270, 170, 0.02, 0.8, 0.06); nburst(o, 0, 0.06, 0.6, 0.015, 400, 3200); for (let i = 0; i < 4; i++) tick(o, 0.03 + Math.abs(rnd()) * 0.12, 0.15, 1200 + Math.abs(rnd()) * 1800, 0.006); return fin(o, 1.2, 0.5); },
+    impact_dirt: () => { SD(283); const o = alloc(0.3); thump(o, 0, 90, 55, 0.02, 0.8, 0.07); nburst(o, 0, 0.15, 0.7, 0.05, 0, 800); nburst(o, 0.02, 0.1, 0.2, 0.03, 900, 3000); return fin(o, 1.2, 0.45); },
+    impact_glass: () => { SD(284); const o = alloc(0.7); nburst(o, 0, 0.04, 0.9, 0.006, 2500, 0); for (let i = 0; i < 14; i++) { const t = Math.abs(rnd()) * 0.35; ring(o, t, 2800 + Math.abs(rnd()) * 4800, 0.25, 0.04 + Math.abs(rnd()) * 0.05); } nburst(o, 0.02, 0.3, 0.3, 0.1, 3000, 9000); return fin(o, 1.2, 0.55); },
+    impact_flesh: () => { SD(285); const o = alloc(0.25); thump(o, 0, 140, 70, 0.02, 0.9, 0.05); nburst(o, 0, 0.08, 0.6, 0.02, 0, 900); tick(o, 0, 0.15, 1000, 0.01); return fin(o, 1.2, 0.5); },
+    shell_rifle: () => { SD(290); const o = alloc(0.45); for (const b of [[0, 1], [0.11, 0.5], [0.2, 0.25]]) { ring(o, b[0], 3200, 0.5 * b[1], 0.05); ring(o, b[0], 5300, 0.3 * b[1], 0.04); thump(o, b[0], 800, 500, 0.01, 0.2 * b[1], 0.01); } return fin(o, 1.1, 0.35); },
+    shell_pistol: () => { SD(291); const o = alloc(0.4); for (const b of [[0, 1], [0.09, 0.5], [0.17, 0.25]]) { ring(o, b[0], 4200, 0.5 * b[1], 0.035); ring(o, b[0], 6300, 0.3 * b[1], 0.03); } return fin(o, 1.1, 0.3); },
+    shell_shotgun: () => { SD(292); const o = alloc(0.45); for (const b of [[0, 1], [0.13, 0.45]]) { ring(o, b[0], 1200, 0.5 * b[1], 0.05); thump(o, b[0], 320, 200, 0.012, 0.5 * b[1], 0.03); nburst(o, b[0], 0.02, 0.2 * b[1], 0.005, 1500, 5000); } return fin(o, 1.1, 0.35); },
+    ui_click: () => { SD(300); const o = alloc(0.12); nburst(o, 0, 0.008, 0.7, 0.002, 2000, 0); ring(o, 0, 1000, 0.5, 0.02); ring(o, 0, 1500, 0.3, 0.015); return fin(o, 1.1, 0.4); },
+    ui_hover: () => { SD(301); const o = alloc(0.1); ring(o, 0, 1800, 0.4, 0.02); nburst(o, 0, 0.006, 0.3, 0.002, 3000, 0); return fin(o, 1.1, 0.2); },
+    ui_deploy: () => { SD(302); const o = alloc(0.9); sweep(o, 0, 0.5, 0.6, 300, 3200, 2); thump(o, 0.48, 100, 50, 0.04, 1.0, 0.15); ring(o, 0.48, 700, 0.3, 0.1); ring(o, 0.48, 1400, 0.2, 0.08); nburst(o, 0.48, 0.05, 0.6, 0.01, 300, 6000); return fin(o, 1.2, 0.7); },
+    spawn: () => { SD(303); const o = alloc(0.8); sweep(o, 0, 0.55, 0.45, 500, 2600, 1.4); ring(o, 0.3, 660, 0.15, 0.2); ring(o, 0.3, 990, 0.1, 0.2); return fin(o, 1.1, 0.4); },
+    countdown: () => { SD(304); const o = alloc(0.22); ring(o, 0, 880, 0.9, 0.08); ring(o, 0, 1760, 0.2, 0.05); return fin(o, 1.1, 0.45); },
+    match_end: () => { SD(305); const o = alloc(1.6); [[0, 660], [0.28, 495], [0.56, 392]].forEach((n) => { ring(o, n[0], n[1], 0.6, 0.4); ring(o, n[0], n[1] * 2, 0.2, 0.3); }); return fin(o, 1.1, 0.5); },
+    gren_pin: () => { SD(310); const o = alloc(0.35); tick(o, 0, 0.9, 3200, 0.01); ring(o, 0, 2400, 0.35, 0.05); sweep(o, 0.02, 0.08, 0.3, 1800, 900, 3); tick(o, 0.1, 0.5, 1800, 0.01); return fin(o, 1.2, 0.55); },
+    gren_throw: () => { SD(311); const o = alloc(0.4); sweep(o, 0, 0.3, 0.6, 500, 1900, 1.2); nburst(o, 0, 0.25, 0.15, 0.1, 200, 1200); return fin(o, 1.1, 0.4); },
+    gren_bounce: () => { SD(312); const o = alloc(0.35); thump(o, 0, 170, 90, 0.015, 0.7, 0.05); ring(o, 0, 900, 0.35, 0.06); ring(o, 0, 2100, 0.2, 0.04); nburst(o, 0, 0.02, 0.5, 0.004, 1500, 0); return fin(o, 1.2, 0.5); },
+    flash_bang: () => { SD(313); const o = alloc(1.6); nburst(o, 0, 0.12, 1.4, 0.02, 600, 0); thump(o, 0, 150, 60, 0.02, 1.0, 0.15); ring(o, 0, 3300, 0.35, 0.5); nburst(o, 0.01, 0.6, 0.35, 0.15, 800, 9000); return fin(o, 2.2, 0.95); },
+    flash_ring: () => { SD(314); const o = alloc(5); for (let i = 0; i < o.length; i++) { const t = i / SR; o[i] = Math.sin(TAU * 4300 * t) * 0.5 * Math.exp(-t / 1.6) + Math.sin(TAU * 5200 * t) * 0.12 * Math.exp(-t / 1.2); } return fin(o, 1.0, 0.35); },
+    explosion: () => { SD(306); const o = alloc(2.2); thump(o, 0, 70, 26, 0.12, 1.4, 0.4); nburst(o, 0, 0.08, 1.0, 0.012, 300, 0); { let yl = 0; for (let i = 0; i < o.length; i++) { const t = i / SR, a = 1 - Math.exp(-TAU * (120 + 1500 * Math.exp(-t / 0.35)) / SR); yl += a * (rnd() - yl); o[i] += yl * 1.1 * Math.exp(-t / 0.7); } } return fin(o, 1.8, 0.95); }
+  };
+  const LOOPS = {
+    slide: () => { SD(310); const o = alloc(1.85); sweep(o, 0, 1.85, 1.0, 1500, 1500, 1.5); for (let i = 0; i < o.length; i++) o[i] *= 0.7 + 0.3 * Math.sin(i / SR * TAU * 3.1); const r = loopify(o, Math.floor(0.25 * SR)); return fin(r, 1.0, 0.5); },
+    wind: () => { SD(311); const o = alloc(6.5); let yl = 0, y2 = 0; for (let i = 0; i < o.length; i++) { const t = i / SR, fc = 280 + 220 * Math.sin(t * 0.9) + 120 * Math.sin(t * 2.3 + 1), a = 1 - Math.exp(-TAU * fc / SR); yl += a * (rnd() - yl); y2 += 0.02 * (yl - y2); o[i] = (yl * 0.7 + y2 * 0.9) * (0.7 + 0.3 * Math.sin(t * 0.55)); } const r = loopify(o, Math.floor(0.5 * SR)); return fin(r, 1.0, 0.4); }
+  };
+
+  /* ------------------------------------------------------------------ build */
+  function tasks() {
+    const t = [];
+    for (const id in GUNS) t.push(['gun_' + id, () => gun(GUNS[id], 40 + id.length * 7 + id.charCodeAt(0))]);
+    for (const cl in MC) EVENTS.forEach((ev, i) => t.push([ev + '_' + cl, () => mech(ev, MC[cl], i + cl.length)]));
+    for (const n in MISC) {
+      if (n.indexOf('step_') === 0) for (let v = 0; v < 3; v++) t.push([n + '#' + v, () => MISC[n](v)]);
+      else if (n === 'whiz') for (let v = 0; v < 2; v++) t.push([n + '#' + v, () => MISC[n](v)]);
+      else t.push([n, () => MISC[n]()]);
+    }
+    for (const n in LOOPS) t.push(['loop_' + n, () => LOOPS[n]()]);
+    return t;
+  }
+  function store(name, arr) {
+    RAW[name] = arr; if (!ctx) return;
+    const ab = ctx.createBuffer(1, arr.length, SR); ab.getChannelData(0).set(arr);
+    const m = name.match(/^(.*)#(\d+)$/); if (m) { (B[m[1]] || (B[m[1]] = []))[+m[2]] = ab; } else B[name] = ab;
+  }
+  /* ------------------------------------------------------------------ recorded samples (override the synth)
+     SAMPLES: list name -> base64 MP3 clips. One random clip plays per trigger (never the same twice in a row).
+     SAMPLE_USE: which buffer names each list replaces. Anything not listed keeps its synthesized sound.
+     Footsteps: 'step_<surface>_walk' / 'step_<surface>_run'. A missing _run set falls back to _walk (see play()). */
+  const SURFACES = ['concrete', 'metal', 'dirt', 'tile', 'wood'];
+  const SAMPLES = {
+    /* recorded 1911 gunshots (used for every 1911 shot: the player's own and NPCs'): 6 clips, mono, one random clip per shot (never the same twice in a row). Used in Sound.weapon(). */
+    gun_m1911_npc: [
+'__ASSET_0__'
+,'__ASSET_1__'
+,'__ASSET_2__'
+,'__ASSET_3__'
+,'__ASSET_4__'
+,'__ASSET_5__'
+    ],
+    /* recorded hit marker (user clip) */
+    hit_marker: [
+      'SUQzBAAAAAABBVRJVDIAAAAMAAADSGl0IE1hcmtlcgBUUEUxAAAAEAAAA01ldGFsbGljRG9vbTE2AFRYWFgAAAAoAAADY29tbWVudABCcm91Z2h0IHRvIHlvdSBieSBmbGFzaGtpdC5jb20AVFNTRQAAAA8AAANMYXZmNTcuODMuMTAwAAAAAAAAAAAAAAD/+1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABJbmZvAAAADwAAAAQAAAdXAFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVY6Ojo6Ojo6Ojo6Ojo6Ojo6Ojo6Ojo6Ojo7Hx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fH/////////////////////////////////wAAAABMYXZjNTcuMTAAAAAAAAAAAAAAAAAkBFEAAAAAAAAHV7rtOj0AAAAAAAAAAAAAAAAAAAAA//uQZAAAA1lEwIUkwAI16mgQoAgAUSWRMTj2gAj1lyPnAiAA9zRkYrJ9IATBMVo25znROzAQAAAhGf+7Jkyd5////etBAhERd3ZMmTJpoRERERF3faIiN8REe7IEEIj/+7JkyZO/BMnd7/7iIj9oIAMBhaetGOYgAAAA7gAAAAeHh4eGAAAAAAeHh4eGAAB////////////5z5yEb///znEEITyHPQhCEIc5znOd5znOc55AMDFnf//gAdAAB3gYefAMAAAuXHjyriSapAH/FDYHjJ91J2RE7z8+ywHC+mkCwNkEEUDriYDkqT5padOjzOboo0LlPKJJKsm7tWy0wuAShaMAPBNNJmrdJS2dSB8+XC+PEvDwZB6m1OqgyDrUPEvDCHhhx5hcx4F9Tp0Fvf7a2oKJcyHgUE3SPG5Tb//+328plNk5NKZTJhQLCwAgAAGEgAgAAH9If///4tE/+0G39/769U/bxweCmUIdksorS9iC2wufMl7TMpapNYfDArWfURECzmKIJiqleKF2wDmyMnRnT+CMNvgXJ2FIozaj//uSZAqDlBtZ3oclIAIwQAjh4AgAD/k7d8ewxwi4gCPUEIm4CjhQgjOe5TEJ/JvJKg3NBi7aDMQQI9J5lF6yshfXajlLyyF+4toPSjmxRsy5pV7LaNdHTFzXbgpCcKQLpW2pKdEdSgp+gs4JEdQumPNJjbbpRiFKXiTLc6ZlBHPYZbdpNOb2FrOWsHRmIzpMy79oB//3WvbxlCtmih51tNtL4VS11QvpscK5dIk9bTKUOU8yd3TbAkOKiqnLAAVXAyCRgAEUEIAyBhF1QgeotwhSXGwBRMA0Co0B9jZJMjJcZXBIGAUEgYBa1a5yVEqYGSk0jBJLKqmqqtFvWNXOJb9OJV2OSOt5avRLZfK/9abXk4KJEkjiKMkZbcOzzOORVTU8+YO2u2znNI1T9qJa0sSrwUGioirsjirATCON8V+Q0WiHb1v/1qTxf1KmqmelNDWBLse3NJrirWH2/ZhWwPkYxqrRZ7mtIE4jHpNuShqVCsJZBBAEqRZoJc7EWbwVI5jYO9DDWXlpTK9U1gMzC8cq+taRnqHLVx5KHEpc6lOa1//7kmQYgZREYk9Z6FVyMmAY5QAiAAvtixAgjNcBmTFiCBCMeMdSQHwOmHL/DLV/UjA+BSHhxNZTmlX//8ioOmHFFgtBUebDmh0Lh6Vdf//8HA6KBEDooEQPB+HpV8OHoLoXAIQSREA1CBJDlR//Q40w5Jqf9TTnbopKcOAvAH7MsXZNJ3bPM/pddQNfkdSiDb1TS22i3bW8gPQMrHNDs8ITLRqzTCpdK36L3JWPGcWZGL+83OSI40xto6rkdVGSKiVe9bh36hrvrk8XIYjNhMRmmCy0PNy2IaUqcnS/sRtzvfMttiN8FII/uVs0SlzX+CFm5uc4vX3e059pVy2vH2kfrpdiZd41PV7Segh6WQmHyQ3iKKMWxJZustIAMPFHlwaRHlFLT2I1KK3ULIjN3S1hsxAbExEpOIZxReZvXIwNCI3O1VdQUY3Q4SBAMzcL0c0Du0dhdY3rHhydILEJQL4cguOERwQDuwNKlKFRsQbAhAC+pY0QACQgEzDciCEIQrC5cT4hP5CYn/J3hCFeYYhCEzYUKiFxC8lmEMIU1JRKqvD/+5JEFw/yql5CWCEccGPMeBAEZnwAAAGkAAAAIAAANIAAAATq7M3V/9mUofGbqr6lVZmDAQpj9mNmP/ZmZmZQqykzdVfoUTTBUYW/5CfCsY1jH3h6r1Wb6FARKsx/0uHeNlC+zKOU1VRxIkSo1Gcre1Y8z5IkSOy2zlbNfzjORRqnxq313BQnGqqliSXOJJVM+q9VRuVvliVf+Zapyc848//P+8kZqq+HLIo0BQ1rTEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV'
+    ],
+    /* vest-heavy player walk: walk_pre_01..16 then walk_post_01..16 */
+    step_walk: [
+      '__ASSET_6__',
+      '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qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqg==',
+      'SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjYwLjE2LjEwMAAAAAAAAAAAAAAA//twwAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAAKAAANeAAuLi4uLi4uLi5FRUVFRUVFRUVFXV1dXV1dXV1dXXR0dHR0dHR0dHSLi4uLi4uLi4uLoqKioqKioqKiorq6urq6urq6urrR0dHR0dHR0dHR6Ojo6Ojo6Ojo6P////////////8AAAAATGF2YzYwLjMxAAAAAAAAAAAAAAAAJARkAAAAAAAADXg3tg88AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP/7cMQAAA8BJSYUxgACciyrpzDwATOxIBACAHCY5NDgkCQYObfDszXr16+7AkATAmDcnxsHBgsXv3ve9/WE8/+lNbvi9evXr16+xwJZPfgWLFnaw5SjCxY51KUpSk5Revvf5mjC9e/9FixZ1KdMzSkzlKUpTWzA8c6973+b3v+U7Vjhz8uCBz/5d/8uH2FdcJMOsKIMOHIsjqQccvOv7OMJ50kAWqKWMHct00x2NzDQSJCLQGdzVaGQWdkUUe0Td1Q9jqp++RU7Hu93rdVTPVwqmaJHnte99yRMViRJMNkbefq/9+n4j2Hd5Ds/eRHV8XtqaP49tYw/i6fxW5x9t4pvfxqlPj5xrfZVtwzPnGvJXc8LFffe56b3r7xT/6//xCg4Mdf+KWK8E6V9/z9j88FWgi8olHHoSYf/+3LEB4ASVUlquPeAAgKjKyewkACovT6UoRtj5O5llLIXVCTeRjwpl5CEdCWYzWyx3cVWMidbG/WP2aKzvYVXj689dS/MGJe1nu4kSaPeuMW3CfdievcfWmSAzx9wtPXuc1jwPaG8vbWfb1rDY4eP81g2taHi9odPfEK8SucZy8iTfVLW//tb/VPSYGQkF3TINbwQMswD/1RqoAAABKJrTEnqVqwO04DzPs/Usa64caZHC5yaFYmIF4KGgSKzLoVzqxWKya72CiU11lGroUkiLybbKiAJEpCs0UHkMLhbKR1ubGsJ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',
+      '__ASSET_7__',

@@ -1,0 +1,951 @@
+      vertexShader: 'attribute vec4 aColor; attribute float aSize; varying vec4 vC; uniform float uK; void main(){ vC=aColor; vec4 mv=modelViewMatrix*vec4(position,1.0); gl_Position=projectionMatrix*mv; gl_PointSize=clamp(aSize*uK/max(0.15,-mv.z),1.0,180.0); }',
+      fragmentShader: 'varying vec4 vC; uniform float uLin; void main(){ vec2 d=gl_PointCoord-0.5; float r=dot(d,d)*4.0; if(r>1.0) discard; float a=(1.0-r); a*=a; vec3 c=vC.rgb; if(uLin>0.0) c=pow(c,vec3(2.2))*uLin; gl_FragColor=vec4(c,vC.a*a); }'
+    });
+    const pts = new THREE.Points(geo, mat); pts.frustumCulled = false; pts.renderOrder = additive ? 6 : 5;
+    return { cap, n: 0, d: new Float32Array(cap * ST), pos, col, siz, geo, mat, pts, add: additive };
+  }
+  function emit(S, x, y, z, vx, vy, vz, life, s0, s1, r, g, b, a, grav, drag) {
+    if (S.n >= S.cap) return; const d = S.d, o = S.n++ * ST;
+    d[o] = x; d[o + 1] = y; d[o + 2] = z; d[o + 3] = vx; d[o + 4] = vy; d[o + 5] = vz; d[o + 6] = 0; d[o + 7] = life; d[o + 8] = s0; d[o + 9] = s1; d[o + 10] = r; d[o + 11] = g; d[o + 12] = b; d[o + 13] = a; d[o + 14] = grav; d[o + 15] = drag;
+  }
+  function stepSys(S, dt) {
+    const d = S.d, pos = S.pos, col = S.col, siz = S.siz; let i = 0;
+    while (i < S.n) {
+      const o = i * ST; d[o + 6] += dt;
+      if (d[o + 6] >= d[o + 7]) { const l = --S.n * ST; if (l !== o) for (let k = 0; k < ST; k++) d[o + k] = d[l + k]; continue; }
+      const k = Math.exp(-d[o + 15] * dt); d[o + 3] *= k; d[o + 5] *= k; d[o + 4] = d[o + 4] * k - d[o + 14] * dt;
+      d[o] += d[o + 3] * dt; d[o + 1] += d[o + 4] * dt; d[o + 2] += d[o + 5] * dt;
+      if (d[o + 1] < 0.01 && d[o + 14] > 0) { d[o + 1] = 0.01; d[o + 4] *= -0.25; d[o + 3] *= 0.5; d[o + 5] *= 0.5; }
+      const t = d[o + 6] / d[o + 7], a = d[o + 13] * (1 - t) * Math.min(1, t * 9 + 0.35);
+      pos[i * 3] = d[o]; pos[i * 3 + 1] = d[o + 1]; pos[i * 3 + 2] = d[o + 2];
+      col[i * 4] = d[o + 10]; col[i * 4 + 1] = d[o + 11]; col[i * 4 + 2] = d[o + 12]; col[i * 4 + 3] = a; siz[i] = d[o + 8] + (d[o + 9] - d[o + 8]) * t; i++;
+    }
+    S.geo.setDrawRange(0, S.n); S.geo.attributes.position.needsUpdate = true; S.geo.attributes.aColor.needsUpdate = true; S.geo.attributes.aSize.needsUpdate = true;
+  }
+
+  /* ------------------------------------------------------------ tracers */
+  let TR = null;
+  function makeTracers(cap) {
+    const geo = new THREE.BufferGeometry(), pos = new Float32Array(cap * 12), col = new Float32Array(cap * 16), idx = new Uint16Array(cap * 6);
+    for (let i = 0; i < cap; i++) { const b = i * 4; idx.set([b, b + 1, b + 2, b, b + 2, b + 3], i * 6); }
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3).setUsage(THREE.DynamicDrawUsage)); geo.setAttribute('color', new THREE.BufferAttribute(col, 4).setUsage(THREE.DynamicDrawUsage)); geo.setIndex(new THREE.BufferAttribute(idx, 1)); geo.setDrawRange(0, 0);
+    const mat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false });
+    const mesh = new THREE.Mesh(geo, mat); mesh.frustumCulled = false; mesh.renderOrder = 7;
+    return { cap: Math.min(cap, 48), max: cap, n: 0, list: [], geo, pos, col, mesh };
+  }
+  const _tmpA = new V3(), _tmpB = new V3(), _tmpC = new V3();
+  function stepTracers(dt) {
+    const T = TR; let i = 0;
+    while (i < T.list.length) { const t = T.list[i]; t.t += dt; const trav = t.t * t.speed; if (trav - t.len >= t.dist) { T.list[i] = T.list[T.list.length - 1]; T.list.pop(); continue; } i++; }
+    const pos = T.pos, col = T.col;
+    for (i = 0; i < T.list.length; i++) {
+      const t = T.list[i], head = Math.min(t.dist, t.t * t.speed), tail = Math.max(0, t.t * t.speed - t.len);
+      const hx = t.x + t.dx * head, hy = t.y + t.dy * head, hz = t.z + t.dz * head, tx = t.x + t.dx * tail, ty = t.y + t.dy * tail, tz = t.z + t.dz * tail;
+      const mx = (hx + tx) * 0.5, my = (hy + ty) * 0.5, mz = (hz + tz) * 0.5;
+      _tmpA.set(t.dx, t.dy, t.dz); _tmpB.set(camPos.x - mx, camPos.y - my, camPos.z - mz); const dc = _tmpB.length();
+      _tmpC.crossVectors(_tmpA, _tmpB); const l = _tmpC.length(); if (l < 1e-6) _tmpC.set(0, 1, 0); else _tmpC.multiplyScalar(1 / l);
+      const hw = Math.max(t.w * 0.5, dc * 0.0007), o = i * 12, c = i * 16;
+      pos[o] = tx - _tmpC.x * hw; pos[o + 1] = ty - _tmpC.y * hw; pos[o + 2] = tz - _tmpC.z * hw; pos[o + 3] = tx + _tmpC.x * hw; pos[o + 4] = ty + _tmpC.y * hw; pos[o + 5] = tz + _tmpC.z * hw;
+      pos[o + 6] = hx + _tmpC.x * hw; pos[o + 7] = hy + _tmpC.y * hw; pos[o + 8] = hz + _tmpC.z * hw; pos[o + 9] = hx - _tmpC.x * hw; pos[o + 10] = hy - _tmpC.y * hw; pos[o + 11] = hz - _tmpC.z * hw;
+      const fade = head >= t.dist ? Math.max(0, 1 - (t.t * t.speed - t.dist) / t.len) : 1;
+      for (let v = 0; v < 4; v++) { const a = (v < 2 ? 0.0 : 1.0) * fade * t.a; col[c + v * 4] = t.r; col[c + v * 4 + 1] = t.g; col[c + v * 4 + 2] = t.b; col[c + v * 4 + 3] = a; }
+    }
+    T.geo.setDrawRange(0, T.list.length * 6); T.geo.attributes.position.needsUpdate = true; T.geo.attributes.color.needsUpdate = true;
+  }
+
+  /* ------------------------------------------------------------ decals */
+  let DC = null;
+  const DCOL = { blood: [0.3, 0.012, 0.012], concrete: [0.12, 0.12, 0.12], tile: [0.2, 0.2, 0.2], dirt: [0.2, 0.15, 0.1], wood: [0.1, 0.07, 0.04], metal: [0.04, 0.04, 0.05], glass: [0.7, 0.8, 0.9] };
+  const _dq = new THREE.Quaternion(), _dq2 = new THREE.Quaternion(), _dm = new THREE.Matrix4(), _dp = new V3(), _ds = new V3(), _dn = new V3(), _z = new V3(0, 0, 1), _dc = new THREE.Color();
+  function makeDecals(cap) {
+    const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
+    const gr = g.createRadialGradient(32, 32, 1, 32, 32, 30); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.35, 'rgba(255,255,255,0.95)'); gr.addColorStop(0.7, 'rgba(255,255,255,0.35)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, 64, 64); g.strokeStyle = 'rgba(255,255,255,0.55)'; g.lineWidth = 1.2;
+    for (let i = 0; i < 7; i++) { const a = i / 7 * Math.PI * 2 + 0.3, l = 14 + (i * 37 % 13); g.beginPath(); g.moveTo(32, 32); g.lineTo(32 + Math.cos(a) * l, 32 + Math.sin(a) * l); g.stroke(); }
+    const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+    const mat = new THREE.MeshStandardMaterial({ map: tex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4, opacity: 0.9, roughness: 0.95, metalness: 0, envMapIntensity: 0.3 });   /* lit: reacts to the lights, never glows in the dark */
+    const mesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), mat, cap); mesh.count = 0; mesh.frustumCulled = false; mesh.renderOrder = 2;
+    mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3), 3);
+    return { cap, lim: Math.min(cap, 260), i: 0, n: 0, mesh };
+  }
+  /* ------------------------------------------------------------ blood stains: irregular splats, LIT (dark in dark rooms, never glowing) */
+  let BD = null;
+  function bloodTex(seed) {
+    const S = 128, c = document.createElement('canvas'); c.width = c.height = S; const g = c.getContext('2d');
+    let sd = seed * 7919 + 13; const R = () => { sd = (sd * 9301 + 49297) % 233280; return sd / 233280; };
+    const cx = S / 2, cy = S / 2, mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    const blob = (r, col, a, irr) => {
+      const n = 16, ph = [R() * 6.28, R() * 6.28, R() * 6.28, R() * 6.28], pts = [];
+      for (let i = 0; i < n; i++) { const t = i / n * 6.2832; let q = 1; for (let k = 0; k < 4; k++) q += (irr / (k + 1)) * Math.sin(t * (k + 2) + ph[k]); pts.push([cx + Math.cos(t) * r * q, cy + Math.sin(t) * r * q]); }
+      const m0 = mid(pts[n - 1], pts[0]); g.beginPath(); g.moveTo(m0[0], m0[1]);
+      for (let i = 0; i < n; i++) { const m = mid(pts[i], pts[(i + 1) % n]); g.quadraticCurveTo(pts[i][0], pts[i][1], m[0], m[1]); }
+      g.closePath(); g.globalAlpha = a; g.fillStyle = col; g.fill();
+    };
+    g.shadowColor = '#3a0508'; g.shadowBlur = 3;
+    const dir = R() * 6.28, base = 15 + R() * 8;
+    blob(base, '#4f0709', 0.95, 0.24); blob(base * 0.62, '#3c0507', 0.9, 0.28);
+    for (let i = 0; i < 15; i++) {   // drops thrown outward, mostly along one direction, elongated like real spatter
+      const ang = dir + (R() - 0.5) * (i < 9 ? 1.9 : 6.28), dist = base + 8 + R() * 30, rad = Math.max(1.3, 5.2 - dist * 0.06 + R() * 1.6), px = cx + Math.cos(ang) * dist, py = cy + Math.sin(ang) * dist;
+      if (px < 6 || py < 6 || px > S - 6 || py > S - 6) continue;
+      g.globalAlpha = 0.9; g.fillStyle = '#470608'; g.beginPath(); g.ellipse(px, py, rad * 1.7, rad, ang, 0, 6.2832); g.fill();
+      if (rad > 2.6) { g.strokeStyle = '#470608'; g.lineWidth = rad * 0.55; g.lineCap = 'round'; g.beginPath(); g.moveTo(cx + Math.cos(ang) * base * 0.8, cy + Math.sin(ang) * base * 0.8); g.lineTo(px, py); g.stroke(); }
+    }
+    for (let i = 0; i < 22; i++) { const ang = R() * 6.28, dist = base + 6 + R() * 38, px = cx + Math.cos(ang) * dist, py = cy + Math.sin(ang) * dist; if (px < 4 || py < 4 || px > S - 4 || py > S - 4) continue; g.globalAlpha = 0.85; g.fillStyle = '#420507'; g.beginPath(); g.arc(px, py, 0.7 + R() * 1.4, 0, 6.2832); g.fill(); }
+    return c;
+  }
+  function makeBloodDecals() {
+    const per = 70, meshes = [];
+    for (let v = 0; v < 4; v++) {
+      const tex = new THREE.CanvasTexture(bloodTex(v + 1)); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+      const mat = new THREE.MeshStandardMaterial({ map: tex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -5, polygonOffsetUnits: -5, roughness: 0.3, metalness: 0, envMapIntensity: 0.5 });
+      const mesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), mat, per); mesh.count = 0; mesh.frustumCulled = false; mesh.renderOrder = 3;
+      mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(per * 3), 3); meshes.push(mesh);
+    }
+    return { per, cap: per * 4, lim: per * 4, i: 0, n: 0, meshes };
+  }
+  function bdCounts() { for (let v = 0; v < 4; v++) BD.meshes[v].count = Math.max(0, Math.ceil((BD.n - v) / 4)); }
+  function bloodDecal(x, y, z, nx, ny, nz, size) {
+    const D = BD; if (!D || D.lim < 1) return;
+    const idx = D.i, v = idx & 3, slot = idx >> 2, mesh = D.meshes[v];
+    _dn.set(nx, ny, nz); _dq.setFromUnitVectors(_z, _dn); _dq2.setFromAxisAngle(_z, rnd() * 6.28); _dq.multiply(_dq2);
+    const s = (size || 0.25) * 1.7, asp = rr(0.75, 1.35); _dp.set(x + nx * 0.014, y + ny * 0.014, z + nz * 0.014); _ds.set(s * asp, s, 1);
+    _dm.compose(_dp, _dq, _ds); mesh.setMatrixAt(slot, _dm); const k = rr(0.55, 1.0); _dc.setRGB(k, k, k); mesh.setColorAt(slot, _dc);
+    D.i = (D.i + 1) % D.lim; D.n = Math.min(D.lim, D.n + 1); bdCounts(); mesh.instanceMatrix.needsUpdate = true; mesh.instanceColor.needsUpdate = true;
+  }
+  function decal(x, y, z, nx, ny, nz, mat, size) {
+    if (mat === 'blood') { bloodDecal(x, y, z, nx, ny, nz, size); return; }
+    const D = DC, c = DCOL[mat] || DCOL.concrete; if (mat === 'flesh' || D.lim < 1) return;
+    _dn.set(nx, ny, nz); _dq.setFromUnitVectors(_z, _dn); _dq2.setFromAxisAngle(_z, rnd() * 6.28); _dq.multiply(_dq2);
+    const s = size || (mat === 'glass' ? 0.2 : 0.075) * (0.8 + rnd() * 0.5); _dp.set(x + nx * 0.012, y + ny * 0.012, z + nz * 0.012); _ds.set(s, s, s);
+    _dm.compose(_dp, _dq, _ds); D.mesh.setMatrixAt(D.i, _dm); _dc.setRGB(c[0], c[1], c[2]); D.mesh.setColorAt(D.i, _dc);
+    D.i = (D.i + 1) % D.lim; D.n = Math.min(D.lim, D.n + 1); D.mesh.count = D.n; D.mesh.instanceMatrix.needsUpdate = true; D.mesh.instanceColor.needsUpdate = true;
+  }
+
+  /* ------------------------------------------------------------ casings */
+  let CS = null;
+  function makeCasings(cap) {
+    const g = new THREE.CylinderGeometry(0.0055, 0.0055, 0.034, 6); g.rotateX(Math.PI / 2);
+    const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.35, metalness: 0.9, envMapIntensity: 1.0 });
+    const mesh = new THREE.InstancedMesh(g, m, cap); mesh.count = 0; mesh.frustumCulled = false; mesh.castShadow = false;
+    mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3), 3);
+    const list = []; for (let i = 0; i < cap; i++) list.push({ on: false, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, rx: 0, ry: 0, rz: 0, wx: 0, wy: 0, wz: 0, t: 0, kind: 0, b: 0 });
+    return { cap, lim: Math.min(cap, 56), mesh, list, next: 0 };
+  }
+  const _ce = new THREE.Euler(), _cq = new THREE.Quaternion(), _cp = new V3(), _cs = new V3(), _cc = new THREE.Color();
+  const CCOL = [[0.78, 0.6, 0.22], [0.72, 0.55, 0.2], [0.75, 0.1, 0.07]];
+  function casing(x, y, z, vx, vy, vz, kind) {
+    const C = CS; if (C.lim < 1) return; const c = C.list[C.next]; C.next = (C.next + 1) % C.lim;
+    c.on = true; c.x = x; c.y = y; c.z = z; c.vx = vx; c.vy = vy; c.vz = vz; c.rx = rnd() * 6; c.ry = rnd() * 6; c.rz = rnd() * 6; c.wx = rr(-30, 30); c.wy = rr(-30, 30); c.wz = rr(-30, 30); c.t = 0; c.kind = kind | 0; c.b = 0;
+  }
+  function stepCasings(dt) {
+    const C = CS; let n = 0;
+    for (let i = 0; i < C.cap; i++) {
+      const c = C.list[i]; if (!c.on) continue;
+      c.t += dt; if (c.t > 7) { c.on = false; continue; }
+      if (c.b < 3) {
+        c.vy -= 16 * dt; c.x += c.vx * dt; c.y += c.vy * dt; c.z += c.vz * dt; c.rx += c.wx * dt; c.ry += c.wy * dt; c.rz += c.wz * dt;
+        const gy = world ? world.surfaceY(c.x, c.z, c.y + 0.35) : 0, r = c.kind === 2 ? 0.012 : 0.006;
+        if (c.y < gy + r && c.vy < 0) { c.y = gy + r; c.b++; if (c.b === 1 && typeof Sound !== 'undefined' && Sound.ready) Sound.play(c.kind === 2 ? 'shell_shotgun' : c.kind === 1 ? 'shell_pistol' : 'shell_rifle', { pos: { x: c.x, y: c.y, z: c.z }, gain: 0.7 }); c.vy *= -0.32; c.vx *= 0.5; c.vz *= 0.5; c.wx *= 0.4; c.wy *= 0.4; c.wz *= 0.4; if (c.b >= 3) { c.vy = 0; c.rx = 0; c.rz = 1.57 * (c.kind === 2 ? 1 : 0); } }
+      }
+      const sc = c.t > 6 ? 1 - (c.t - 6) : 1, k = c.kind === 2 ? 1.9 : c.kind === 1 ? 0.8 : 1;
+      _ce.set(c.rx, c.ry, c.rz); _cq.setFromEuler(_ce); _cp.set(c.x, c.y, c.z); _cs.set(k * sc, k * sc, k * sc * (c.kind === 2 ? 1.4 : 1));
+      _dm.compose(_cp, _cq, _cs); C.mesh.setMatrixAt(n, _dm); const col = CCOL[c.kind] || CCOL[0]; _cc.setRGB(col[0], col[1], col[2]); C.mesh.setColorAt(n, _cc); n++;
+    }
+    C.mesh.count = n; C.mesh.instanceMatrix.needsUpdate = true; if (n) C.mesh.instanceColor.needsUpdate = true;
+  }
+
+  /* ------------------------------------------------------------ muzzle flashes (world space) */
+  let FL = null;
+  function makeFlashes(cap) {
+    const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
+    const gr = g.createRadialGradient(32, 32, 1, 32, 32, 31); gr.addColorStop(0, 'rgba(255,250,225,1)'); gr.addColorStop(0.25, 'rgba(255,200,110,0.85)'); gr.addColorStop(0.6, 'rgba(255,120,30,0.25)'); gr.addColorStop(1, 'rgba(255,90,10,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, 64, 64); g.globalCompositeOperation = 'lighter'; g.strokeStyle = 'rgba(255,230,170,0.9)'; g.lineWidth = 2.5;
+    for (let i = 0; i < 6; i++) { const a = i * 1.047 + 0.2; g.beginPath(); g.moveTo(32, 32); g.lineTo(32 + Math.cos(a) * 30, 32 + Math.sin(a) * 30); g.stroke(); }
+    const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+    const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false });
+    const geo = new THREE.PlaneGeometry(1, 1), list = [];
+    for (let i = 0; i < cap; i++) { const g2 = new THREE.Group(); const a = new THREE.Mesh(geo, mat), b = new THREE.Mesh(geo, mat); b.rotation.y = Math.PI / 2; a.frustumCulled = b.frustumCulled = false; g2.add(a, b); g2.visible = false; g2.renderOrder = 8; list.push({ g: g2, t: 9, life: 0.06, size: 0.3 }); }
+    return { cap, list, next: 0, tex, mat };
+  }
+  function flash(x, y, z, dx, dy, dz, size) {
+    const F = FL, f = F.list[F.next]; F.next = (F.next + 1) % F.cap; f.t = 0; f.life = 0.055; f.size = size || 0.4;
+    f.g.position.set(x, y, z); _dn.set(dx, dy, dz); f.g.quaternion.setFromUnitVectors(_z.set(0, 0, 1), _dn); f.g.rotateZ(rnd() * 6.28); f.g.visible = true; f.g.scale.setScalar(f.size);
+    f.g.children[0].scale.set(1, 1, 1);
+  }
+  function stepFlashes(dt) { const F = FL; for (let i = 0; i < F.cap; i++) { const f = F.list[i]; if (!f.g.visible) continue; f.t += dt; if (f.t >= f.life) { f.g.visible = false; continue; } const k = 1 - f.t / f.life; f.g.scale.setScalar(f.size * (0.6 + 0.6 * k)); } }
+
+  /* ------------------------------------------------------------ public API */
+  let N = null, A = null;
+  function init(scene, w) {
+    world = w; root = new THREE.Group(); root.name = 'fx'; quality = 1;
+    N = makeSys(1400, false); A = makeSys(2000, true); TR = makeTracers(64); DC = makeDecals(600); BD = makeBloodDecals(); CS = makeCasings(120); FL = makeFlashes(10);
+    root.add(N.pts, A.pts, TR.mesh, DC.mesh, CS.mesh); for (const m of BD.meshes) root.add(m); for (const f of FL.list) root.add(f.g);
+    scene.add(root);
+  }
+  function setView(heightPx, fovRad) { viewK = heightPx / (2 * Math.tan(fovRad / 2)); N.mat.uniforms.uK.value = viewK; A.mat.uniforms.uK.value = viewK; }
+  function update(dt, cp) { if (!root) return; camPos.copy(cp); stepSys(N, dt); stepSys(A, dt); stepTracers(dt); stepCasings(dt); stepFlashes(dt); stepBleeders(dt); }
+  function setQuality(q) { quality = q; }
+  /* the HDR post pipeline tone-maps at the end, so the raw particle colours are converted to linear (additive ones also get a little HDR gain for bloom) */
+  function setLinear(on) { if (!N || !A) return; N.mat.uniforms.uLin.value = on ? 1 : 0; A.mat.uniforms.uLin.value = on ? 2 : 0; }
+  /* o = { dc: decal limit, cs: casing limit, tr: tracer limit } (the pools are allocated for the maximum) */
+  function setLimits(o) {
+    if (!DC || !CS || !TR) return;
+    DC.lim = Math.max(0, Math.min(DC.cap, o.dc | 0)); if (DC.n > DC.lim) { DC.n = DC.lim; DC.mesh.count = DC.n; } if (DC.i >= Math.max(1, DC.lim)) DC.i = 0;
+    if (BD) { BD.lim = Math.max(0, Math.min(BD.cap, o.dc | 0)); if (BD.n > BD.lim) BD.n = BD.lim; if (BD.i >= Math.max(1, BD.lim)) BD.i = 0; bdCounts(); }
+    CS.lim = Math.max(0, Math.min(CS.cap, o.cs | 0)); if (CS.next >= Math.max(1, CS.lim)) CS.next = 0; for (let i = CS.lim; i < CS.cap; i++) CS.list[i].on = false;
+    TR.cap = Math.max(1, Math.min(TR.max, o.tr | 0));
+  }
+  function clear() { BL.length = 0; N.n = 0; A.n = 0; TR.list.length = 0; DC.n = 0; DC.i = 0; DC.mesh.count = 0; if (BD) { BD.n = 0; BD.i = 0; bdCounts(); } for (const c of CS.list) c.on = false; for (const f of FL.list) f.g.visible = false; }
+
+  function tracer(x0, y0, z0, x1, y1, z1, o) {
+    o = o || {}; const dx = x1 - x0, dy = y1 - y0, dz = z1 - z0, d = Math.sqrt(dx * dx + dy * dy + dz * dz); if (d < 0.5 || TR.list.length >= TR.cap) return;
+    TR.list.push({ x: x0, y: y0, z: z0, dx: dx / d, dy: dy / d, dz: dz / d, dist: d, t: 0, speed: o.speed || 260, len: Math.min(o.len || 7, d), w: o.w || 0.025, r: o.r === undefined ? 1.0 : o.r, g: o.g === undefined ? 0.82 : o.g, b: o.b === undefined ? 0.45 : o.b, a: o.a === undefined ? 0.85 : o.a });
+  }
+  const MC = { concrete: [0.66, 0.63, 0.58], tile: [0.72, 0.7, 0.66], dirt: [0.5, 0.4, 0.29], wood: [0.55, 0.4, 0.25], metal: [0.55, 0.55, 0.57], glass: [0.8, 0.9, 0.95], flesh: [0.6, 0.04, 0.03] };
+  function impact(x, y, z, nx, ny, nz, mat, o) {
+    const c = MC[mat] || MC.concrete, px = x + nx * 0.03, py = y + ny * 0.03, pz = z + nz * 0.03, q = quality;
+    for (let i = 0; i < 3 * q + 1; i++) emit(N, px, py, pz, nx * 0.7 + rr(-0.5, 0.5), ny * 0.7 + rr(-0.1, 0.6), nz * 0.7 + rr(-0.5, 0.5), rr(0.4, 0.75), 0.05, 0.26, c[0], c[1], c[2], 0.5, -0.15, 2.6);
+    const nc = mat === 'glass' ? 9 : 5;
+    for (let i = 0; i < nc * q; i++) { const s = rr(2.5, 6.5); emit(N, px, py, pz, nx * s + rr(-2, 2), ny * s + rr(-1, 2.5), nz * s + rr(-2, 2), rr(0.4, 0.8), 0.022, 0.016, c[0] * 0.75, c[1] * 0.75, c[2] * 0.75, 1, 14, 0.6); }
+    if (mat === 'metal') for (let i = 0; i < 7 * q; i++) { const s = rr(4, 10); emit(A, px, py, pz, nx * s + rr(-3, 3), ny * s + rr(-2, 3), nz * s + rr(-3, 3), rr(0.1, 0.28), 0.03, 0.006, 1.0, 0.72, 0.3, 1, 9, 0.5); }
+    if (mat === 'concrete' || mat === 'tile') for (let i = 0; i < 2; i++) emit(A, px, py, pz, nx * 2 + rr(-1, 1), ny * 2 + rr(-1, 1), nz * 2 + rr(-1, 1), rr(0.05, 0.1), 0.04, 0.01, 1, 0.8, 0.45, 0.7, 6, 1);
+    if (!o || !o.noDecal) decal(x, y, z, nx, ny, nz, mat);
+  }
+  /* blood: k scales the amount (shotgun pellets pass a small k each, a sniper round a big one). Spray leaves the far side of the body along the bullet's line, a small puff comes back toward
+     the shooter, a red mist hangs in the air, and drops that reach a floor or wall leave stains. */
+  function blood(x, y, z, dx, dy, dz, head, k) {
+    k = k || 1; const lk = (world && world.fxLight) || 1, q = quality, h = Math.hypot(dx, dy, dz) || 1; dx /= h; dy /= h; dz /= h;
+    const ox = x + dx * 0.18, oy = y + dy * 0.18, oz = z + dz * 0.18;
+    const n = Math.round((9 + (head ? 6 : 0)) * k * q) + 1;
+    for (let i = 0; i < n; i++) { const s = rr(2.5, 9) * (0.75 + 0.25 * Math.min(k, 2)); emit(N, ox, oy, oz, dx * s + rr(-2.2, 2.2), dy * s + rr(-1.2, 2.4), dz * s + rr(-2.2, 2.2), rr(0.35, 0.85), rr(0.03, 0.05), 0.016, 0.26 * lk, 0.006, 0.006, 0.95, 12, 0.35); }
+    for (let i = 0; i < Math.round(3 * k * q) + 1; i++) { const s = rr(0.8, 3); emit(N, x, y, z, -dx * s + rr(-1, 1), -dy * s + rr(0, 1.4), -dz * s + rr(-1, 1), rr(0.25, 0.5), 0.028, 0.012, 0.24 * lk, 0.006, 0.006, 0.9, 12, 0.5); }
+    for (let i = 0; i < Math.round((2 + 2 * k) * q) + 1; i++) emit(N, ox, oy, oz, dx * rr(0.8, 3.2) + rr(-0.6, 0.6), dy * 1.2 + rr(0.1, 0.9), dz * rr(0.8, 3.2) + rr(-0.6, 0.6), rr(0.7, 1.4), rr(0.1, 0.18), rr(0.5, 0.95), 0.2 * lk, 0.006, 0.006, rr(0.2, 0.38), -0.15, 2.2);
+    if (k >= 0.9 || rnd() < 0.5 * k) splat(ox, oy, oz, dx, dy, dz, k, head);
+  }
+  /* stains: rays fanned out behind the body along the line of fire (some angled down) find the wall or floor the blood reaches */
+  function splat(x, y, z, dx, dy, dz, k, head) {
+    if (!world || quality < 0.5) return; const rays = 1 + Math.round(2 * Math.min(k, 2));
+    for (let i = 0; i < rays; i++) {
+      let rx = dx + rr(-0.45, 0.45), ry = dy + rr(-0.55, 0.15) - 0.1 * i, rz = dz + rr(-0.45, 0.45); const l = Math.hypot(rx, ry, rz) || 1; rx /= l; ry /= l; rz /= l;
+      if (world.raycast(x, y, z, rx, ry, rz, 3 + 4 * Math.min(k, 2))) { const H = world.hit; decal(H.x, H.y, H.z, H.nx, H.ny, H.nz, 'blood', rr(0.12, 0.3) * (0.7 + 0.3 * Math.min(k, 2)) * (H.t < 2 ? 0.8 : 1.15)); }
+    }
+    if (world.raycast(x, y, z, 0, -1, 0, 3)) { const H = world.hit; decal(H.x, H.y, H.z, H.nx, H.ny, H.nz, 'blood', rr(0.2, 0.45) * (0.7 + 0.3 * Math.min(k, 2))); }
+  }
+  /* a lingering bleed: for a moment after a kill, red mist and a few drops keep coming out of the body wherever it ends up */
+  const BL = [];
+  function bleed(e, dur, k) { if (e && e.soldier && e.soldier.chestPos && BL.length < 16) BL.push({ s: e.soldier, t: 0, dur: dur || 1.1, k: k || 1, acc: 0 }); }
+  function stepBleeders(dt) {
+    const lk = (world && world.fxLight) || 1;
+    for (let i = BL.length - 1; i >= 0; i--) {
+      const b = BL[i]; b.t += dt; b.acc += dt; if (b.t >= b.dur) { BL.splice(i, 1); continue; }
+      const f = 1 - b.t / b.dur;
+      while (b.acc > 0.05) {
+        b.acc -= 0.05; b.s.chestPos(_tmpA);
+        emit(N, _tmpA.x + rr(-0.1, 0.1), _tmpA.y + rr(-0.1, 0.1), _tmpA.z + rr(-0.1, 0.1), rr(-0.5, 0.5), rr(0.3, 1.0), rr(-0.5, 0.5), rr(0.6, 1.1), 0.1, rr(0.35, 0.6), 0.2 * lk, 0.006, 0.006, 0.34 * f * Math.min(1, b.k), -0.2, 2.2);
+        if (quality >= 0.7 && rnd() < 0.5) emit(N, _tmpA.x, _tmpA.y, _tmpA.z, rr(-1.4, 1.4), rr(0.4, 2.2), rr(-1.4, 1.4), rr(0.3, 0.6), 0.03, 0.014, 0.24 * lk, 0.006, 0.006, 0.9, 12, 0.5);
+      }
+    }
+  }
+  function dust(x, y, z, count, speed, o) {
+    o = o || {}; const c = o.c || [0.7, 0.66, 0.58], s = speed || 1.5;
+    for (let i = 0; i < count * quality; i++) { const a = rnd() * 6.283; emit(N, x + rr(-0.15, 0.15), y + 0.05, z + rr(-0.15, 0.15), Math.cos(a) * s * rr(0.3, 1), rr(0.1, 0.8), Math.sin(a) * s * rr(0.3, 1), rr(0.45, 0.9), 0.12, o.size || 0.5, c[0], c[1], c[2], o.a || 0.38, -0.1, 2.2); }
+  }
+  function smoke(x, y, z, vx, vy, vz, size, a) { emit(N, x, y, z, vx, vy, vz, rr(0.5, 0.9), size * 0.4, size, 0.75, 0.75, 0.75, a === undefined ? 0.18 : a, -0.2, 2.0); }
+  function spark(x, y, z, n) { for (let i = 0; i < n; i++) emit(A, x, y, z, rr(-3, 3), rr(0, 4), rr(-3, 3), rr(0.15, 0.3), 0.03, 0.005, 1, 0.75, 0.35, 1, 9, 0.5); }
+
+  /* ---------------------------------------------------------------- Dragon's Breath: a jet of burning magnesium sparks along each pellet's line, a flame plume at the muzzle,
+     and a blinding fire burst with a shower of bouncing sparks and glowing embers where it lands */
+  function dragon(x0, y0, z0, x1, y1, z1, o) {
+    o = o || {}; const dx = x1 - x0, dy = y1 - y0, dz = z1 - z0, d = Math.sqrt(dx * dx + dy * dy + dz * dz); if (d < 0.5) return;
+    const ux = dx / d, uy = dy / d, uz = dz / d, q = quality;
+    if (o.streak) tracer(x0, y0, z0, x1, y1, z1, { len: Math.min(d * 0.7, 16), w: 0.07, speed: o.speed || 140, r: 1, g: 0.5, b: 0.1, a: 0.95 });
+    if (o.streak && o.first) tracer(x0, y0, z0, x0 + (dx + rr(-1.2, 1.2) * d * 0.04), y0 + (dy + rr(0, 1.5) * d * 0.04), z0 + (dz + rr(-1.2, 1.2) * d * 0.04), { len: Math.min(d * 0.5, 10), w: 0.035, speed: (o.speed || 140) * 0.8, r: 1, g: 0.78, b: 0.35, a: 0.8 });
+    const L = Math.min(d, 60), n = (Math.min(44, Math.ceil(L * 1.1)) * q) | 0;
+    for (let i = 0; i < n; i++) {                       /* spark trail: hot white-yellow cores, orange and deep-red embers, fanning out along the way */
+      const t = Math.pow(rnd(), 0.8) * L, w = 0.05 + t * 0.012, hot = rnd(), sp = rr(0, 5);
+      emit(A, x0 + ux * t + rr(-w, w), y0 + uy * t + rr(-w, w), z0 + uz * t + rr(-w, w), ux * sp + rr(-1.4, 1.4), uy * sp + rr(-0.8, 1.6), uz * sp + rr(-1.4, 1.4),
+        rr(0.28, 0.85), hot < 0.15 ? 0.11 : 0.045, 0.006, 1, hot < 0.3 ? 0.92 : hot < 0.75 ? 0.58 : 0.3, hot < 0.3 ? 0.55 : hot < 0.75 ? 0.16 : 0.05, 1, 4.5, 0.9);
+    }
+    if (o.plume) {                                      /* muzzle flame jet */
+      for (let i = 0; i < ((18 * q) | 0); i++) { const s = rr(5, 18); emit(A, x0 + ux * 0.1, y0 + uy * 0.1, z0 + uz * 0.1, ux * s + rr(-1.4, 1.4), uy * s + rr(-0.6, 1.4), uz * s + rr(-1.4, 1.4), rr(0.1, 0.26), rr(0.12, 0.26), 0.03, 1, 0.55 + rnd() * 0.3, 0.14, 0.9, -0.5, 2.2); }
+      for (let i = 0; i < 4; i++) emit(A, x0 + ux * (0.2 + i * 0.25), y0 + uy * (0.2 + i * 0.25), z0 + uz * (0.2 + i * 0.25), ux * 3, uy * 3, uz * 3, 0.12, 0.34 - i * 0.04, 0.12, 1, 0.72, 0.28, 0.85, 0, 3);
+      for (let i = 0; i < 3; i++) emit(N, x0 + ux * 0.5, y0 + uy * 0.5, z0 + uz * 0.5, ux * 3 + rr(-0.5, 0.5), uy * 3 + rr(0.2, 1), uz * 3 + rr(-0.5, 0.5), rr(0.5, 0.9), 0.15, 0.6, 0.26, 0.23, 0.2, 0.32, -0.3, 1.8);
+    }
+  }
+  function fireBurst(x, y, z, nx, ny, nz, k, core) {
+    const q = quality, px = x + nx * 0.05, py = y + ny * 0.05, pz = z + nz * 0.05; k = k || 1;
+    if (core) {                                         /* the blinding bloom */
+      emit(A, px, py, pz, 0, 0.2, 0, 0.2, 1.05 * k, 0.5 * k, 1, 0.9, 0.55, 1, 0, 0);
+      emit(A, px, py, pz, 0, 0.5, 0, 0.38, 1.9 * k, 1.1 * k, 1, 0.42, 0.08, 0.6, -0.3, 0.6);
+      emit(A, px, py, pz, 0, 0.8, 0, 0.55, 2.6 * k, 1.5 * k, 0.9, 0.22, 0.04, 0.32, -0.4, 0.8);
+    }
+    for (let i = 0; i < ((30 * q * k) | 0); i++) {      /* spark shower */
+      const s = rr(3, 12), hot = rnd();
+      emit(A, px, py, pz, nx * s + rr(-5, 5), ny * s + rr(-1, 6), nz * s + rr(-5, 5), rr(0.35, 0.95), hot < 0.25 ? 0.06 : 0.035, 0.006, 1, hot < 0.3 ? 0.92 : 0.6, hot < 0.3 ? 0.5 : 0.14, 1, 7, 0.4);
+    }
+    for (let i = 0; i < ((5 * q * k) | 0); i++) emit(A, px + rr(-0.15, 0.15), py + rr(0, 0.2), pz + rr(-0.15, 0.15), rr(-1, 1), rr(0.5, 2.2), rr(-1, 1), rr(1.1, 1.8), 0.05, 0.02, 1, 0.34, 0.06, 0.55, 1.2, 0.5);   /* lingering embers */
+    if (core) for (let i = 0; i < 2; i++) emit(N, px, py, pz, rr(-0.6, 0.6), rr(0.6, 1.6), rr(-0.6, 0.6), rr(0.7, 1.2), 0.3, 0.9, 0.2, 0.18, 0.16, 0.34, -0.3, 1.6);
+  }
+  function flame(x, y, z) { emit(A, x, y, z, rr(-0.3, 0.3), rr(0.8, 1.8), rr(-0.3, 0.3), rr(0.25, 0.5), rr(0.14, 0.22), 0.04, 1, 0.5 + rnd() * 0.3, 0.1, 0.7, -0.6, 1.4); if (rnd() < 0.5) emit(A, x + rr(-0.1, 0.1), y, z + rr(-0.1, 0.1), rr(-0.5, 0.5), rr(1, 2.5), rr(-0.5, 0.5), rr(0.3, 0.6), 0.03, 0.006, 1, 0.8, 0.4, 1, 3, 0.8); }
+
+  return { init, setWorld: (w) => { world = w; }, setView, update, setQuality, setLinear, setLimits, clear, tracer, impact, blood, bleed, dust, smoke, spark, flash, casing, decal, dragon, fireBurst, flame, stats: () => ({ n: N.n + A.n, tr: TR.list.length, dc: DC.n }) };
+})();
+
+/* ===== 50_weapon_models.js ===== */
+/* ============================================================================
+   50_weapon_models.js — eight procedural guns (real-world scale, meters).
+   Barrel toward -Z, +Y up, +X right. Origin = shooter's right palm on the grip.
+   In builder code "f" = distance toward the muzzle (z = -f).
+   create(id,{lod}) -> { id, root, parts{mag,slide,charge,pump,bolt,lid,...}, anchors{muzzle,eject,gripR,gripL,trigger,ads,load,magGrip}, size, dispose }
+   ============================================================================ */
+const WeaponModels = (function () {
+  'use strict';
+  const IDS = ['ak', 'm4', 'mp5', 'deagle', 'm1911', 'shotgun', 'm60', 'awp', 'knife'];
+  let MATS = null;
+
+  function mats() {
+    if (MATS) return MATS;
+    // roughness/scratch map (tileable, low contrast)
+    const sc = U.pixelCanvas(128, 128, (u, v, o) => { const n = U.tfbm(u * 8, v * 8, 8, 3), s = U.tnoise(u * 64, v * 4, 4) > 0.9 ? 0.8 : 1; const k = (0.8 + 0.2 * n) * s; o[0] = o[1] = o[2] = k * 255; });
+    const rough = U.texture(sc, { srgb: false, repeat: [4, 4] });
+    // wood grain (tileable): grain lines run along u (the gun's length)
+    const wc = U.pixelCanvas(256, 256, (u, v, o) => {
+      const warp = U.tfbm(u * 2, v * 4, 2, 3) * 2.0, line = 0.5 + 0.5 * Math.sin((v * 7 + warp * 0.9) * 6.2832), fine = U.tfbm(u * 4, v * 64, 4, 2), n = U.tfbm(u * 6, v * 8, 6, 3);
+      const k = 0.6 + 0.26 * line + 0.18 * fine + 0.1 * n; o[0] = 170 * k; o[1] = 104 * k; o[2] = 56 * k;
+    });
+    const wood = U.texture(wc, { repeat: [1, 1] }); wood.repeat.set(2.2, 14);
+    const mk = (c, m, r, extra) => new THREE.MeshStandardMaterial(Object.assign({ color: c, metalness: m, roughness: r, envMapIntensity: 1.0, vertexColors: true }, extra));
+    MATS = {
+      blued: mk(0x2d3033, 0.9, 0.5, { roughnessMap: rough }), park: mk(0x42463f, 0.72, 0.62, { roughnessMap: rough }), steel: mk(0x9ca2a7, 0.95, 0.42, { roughnessMap: rough }),
+      chrome: mk(0xd2d6da, 1.0, 0.2), poly: mk(0x1c1d1f, 0.05, 0.78), alu: mk(0x3a3d41, 0.78, 0.5, { roughnessMap: rough }),
+      wood: mk(0xffffff, 0.0, 0.5, { map: wood }), woodD: mk(0xb89070, 0.0, 0.55, { map: wood }), rubber: mk(0x141414, 0.0, 0.95), green: mk(0x445238, 0.06, 0.55),
+      lens: mk(0x244c58, 0.9, 0.04, { emissive: 0x041a22, emissiveIntensity: 0.6 }), brass: mk(0xc4963f, 0.92, 0.28), dark: mk(0x050505, 0.0, 1.0),
+      mp5r: mk(0x202327, 0.6, 0.5, { roughnessMap: rough }), mp5d: mk(0x08090a, 0.2, 0.85), blk: mk(0x454a50, 0.55, 0.46, { roughnessMap: rough }), fde: mk(0xcaad7c, 0.0, 0.62, { roughnessMap: rough }), fdeD: mk(0xa38a62, 0.0, 0.7, { roughnessMap: rough }), fdeL: mk(0xd6c29b, 0.0, 0.6),
+      rem: mk(0x2c2f33, 0.72, 0.56, { roughnessMap: rough }), remB: mk(0x212428, 0.82, 0.46, { roughnessMap: rough }), stip: mk(0x151617, 0.0, 0.9, { bumpMap: U.texture(U.pixelCanvas(32, 32, (u, v, o) => { const gx = (u * 4) % 1 - 0.5, gy = (v * 4) % 1 - 0.5, k = Math.max(0, 1 - Math.hypot(gx, gy) / 0.32); o[0] = o[1] = o[2] = 255 * k * k * (3 - 2 * k); }), { srgb: false, repeat: [150, 150] }), bumpScale: 0.6 })
+    };
+    { const cv = document.createElement('canvas'); cv.width = 128; cv.height = 64; const g = cv.getContext('2d'); g.font = '700 46px Arial, Helvetica, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.shadowColor = 'rgba(60,220,240,0.9)'; g.shadowBlur = 6; g.fillStyle = '#46dcf0'; g.fillText('-04', 64, 34);
+      const tx = new THREE.CanvasTexture(cv); tx.colorSpace = THREE.SRGBColorSpace;
+      MATS._m04 = new THREE.MeshBasicMaterial({ map: tx, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, toneMapped: false, color: 0xcfcfcf }); }
+    /* ---- Desert Eagle .44: brushed stainless, gunmetal, stippled rubber grip, engraving / medallion decals ---- */
+    {
+      const hs = (i) => { const s = Math.sin(i * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };
+      // horizontal brushing streaks (rows of random roughness; the side caps of weapon extrusions have u along the barrel)
+      const brush = U.texture(U.pixelCanvas(64, 128, (u, v, o) => { const r = Math.floor(v * 128), k = 0.6 + 0.4 * (0.65 * hs(r) + 0.35 * hs(((r / 3) | 0) + 91)) + 0.03 * Math.sin(6.2832 * u * 3 + r * 1.7); o[0] = o[1] = o[2] = k * 255; }), { srgb: false, repeat: [2, 20] });
+      // staggered stipple dots for the rubber grip panels (uv = metres on extruded side caps)
+      const dots = U.texture(U.pixelCanvas(32, 32, (u, v, o) => { const rv = v * 2, ri = Math.floor(rv), gy = rv - ri - 0.5, ru = u * 2 + (ri & 1) * 0.5, gx = ru - Math.floor(ru) - 0.5, k = Math.max(0, 1 - Math.hypot(gx, gy) / 0.36); o[0] = o[1] = o[2] = 255 * k * k * (3 - 2 * k); }), { srgb: false, repeat: [220, 220] });
+      MATS.dgSS = mk(0xd9dde0, 1.0, 0.34, { roughnessMap: brush, bumpMap: brush, bumpScale: 0.3, envMapIntensity: 1.25 });     // brushed stainless (slide, barrel, frame)
+      MATS.dgSSD = mk(0xaeb4b9, 1.0, 0.42, { roughnessMap: brush, envMapIntensity: 1.05 });                                   // shaded / matte stainless (rail teeth, hardware)
+      MATS.dgGM = mk(0x4d5155, 0.85, 0.5, { roughnessMap: rough });                                                           // gunmetal (guard, lower rail, backstrap)
+      MATS.dgGrip = mk(0x131415, 0.0, 0.86, { bumpMap: dots, bumpScale: 0.6 });                                               // stippled black rubber
+      MATS.dgRed = mk(0xc41818, 0.1, 0.5); MATS.dgGrn = mk(0x22a845, 0.1, 0.5);
+      const ink = (w, h, draw) => {
+        const cv = document.createElement('canvas'); cv.width = w; cv.height = h; const g = cv.getContext('2d'); draw(g, w, h);
+        const tx = new THREE.CanvasTexture(cv); tx.colorSpace = THREE.SRGBColorSpace; tx.anisotropy = 4;
+        return new THREE.MeshStandardMaterial({ map: tx, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, metalness: 0.3, roughness: 0.55, envMapIntensity: 0.5 });
+      };
+      MATS._dgMag = ink(256, 96, (g, w, h) => { g.font = '600 56px Arial, Helvetica, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#3a3e42'; g.fillText('44 MAG', w / 2, h / 2 + 3); });
+      MATS._dgName = ink(1024, 192, (g, w, h) => {
+        g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#3d4145';
+        g.font = '500 78px Arial Narrow, Arial, Helvetica, sans-serif'; g.fillText('DESERT EAGLE PISTOL ®', w / 2, h * 0.30);
+        g.font = '500 70px Arial Narrow, Arial, Helvetica, sans-serif'; g.fillText('MADE IN USA', w / 2, h * 0.74);
+      });
+      MATS._dgLogo = ink(128, 128, (g, w, h) => {
+        g.translate(w / 2, h / 2); g.strokeStyle = '#34363a'; g.lineWidth = 5; g.beginPath(); g.arc(0, 0, w * 0.44, 0, Math.PI * 2); g.stroke();
+        g.fillStyle = '#34363a'; g.font = 'italic 700 58px Georgia, serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('MR', 0, 4);
+      });
+    }
+    /* v71 metal boost: every metal part of guns and knives gets full metalness, a glossier surface, stronger reflections and a lighter base tint
+       (a very dark metal reflects very little, so it read as flat paint). [roughness scale, reflection multiplier, lighten toward white]. Rubber / polymer / wood / lenses are untouched. */
+    {
+      const MB = { blued: [0.55, 2.3, 0.22], park: [0.7, 2.0, 0.18], steel: [0.6, 2.0, 0.08], chrome: [0.6, 1.8, 0], alu: [0.55, 2.3, 0.25], mp5r: [0.55, 2.3, 0.22], blk: [0.55, 2.2, 0.18], rem: [0.55, 2.3, 0.22], remB: [0.55, 2.3, 0.22], dgSS: [0.65, 1.7, 0], dgSSD: [0.65, 1.7, 0], dgGM: [0.55, 2.3, 0.22], brass: [0.7, 1.8, 0] }, W = new THREE.Color(0xffffff);
+      for (const k in MB) { const m = MATS[k], p = MB[k]; if (!m) continue; m.metalness = 1; m.roughness = Math.max(0.1, m.roughness * p[0]); m.envMapIntensity = (m.envMapIntensity || 1) * p[1]; if (p[2]) m.color.lerp(W, p[2]); }
+    }
+    MATS._default = MATS.blued;
+    return MATS;
+  }
+
+  const bx = (b, k, f0, f1, y0, y1, x0, x1, o) => b.box(x1 - x0, y1 - y0, Math.abs(f1 - f0), (x0 + x1) / 2, (y0 + y1) / 2, -(Math.min(f0, f1) + Math.max(f0, f1)) / 2, k, o);
+  const bar = (b, k, f0, f1, y, r0, r1, seg, x, o) => b.cyl(r0, r1, Math.abs(f1 - f0), x || 0, y, -(f0 + f1) / 2, k, Object.assign({ axis: 'z', seg: seg || 10 }, o));
+  const ex = (b, k, pts, w, x, o) => b.ext(pts, w, x || 0, 0, 0, k, o);
+  const teeth = (b, k, f0, f1, y, step, hw) => { for (let f = f0; f < f1 - step * 0.5; f += step) bx(b, k, f, f + step * 0.5, y, y + 0.006, -hw, hw); };
+
+  function part(b, M, pivot) {
+    const g = b.build(M, { cast: true });
+    if (pivot) { g.children.forEach((m) => m.geometry.translate(-pivot[0], -pivot[1], -pivot[2])); g.position.set(pivot[0], pivot[1], pivot[2]); }
+    return g;
+  }
+  function A(ctx, name, x, y, f, style) { const o = new THREE.Object3D(); o.name = name; o.position.set(x, y, -f); ctx.root.add(o); ctx.anchors[name] = o; if (style) o.userData.style = style; return o; }
+
+  /* ================= M4 =================
+     Mk18-style carbine: black receivers + black RIS quad rail with ribbed FDE rail panels, FDE grip / stock / PMAG,
+     A2 birdcage, flip-up A2 front post + aperture rear sight sharing one sight line (y = 0.152), teal "-04" marking.
+     Coordinates: f = toward the muzzle, y up, x right. Bore axis y = 0.092. Rail top y = 0.1255. */
+  function addPart(c, b, M, name) { const g = b.build(M, { cast: true }); g.name = name; c.root.add(g); c.parts[name] = g; return g; }
+  function buildM4(c) {
+    const M = c.m, S = new U.Builder(), Pst = new U.Builder(), Pm = new U.Builder(), Pc = new U.Builder(), low = c.low, Psi = new U.Builder(), Pi2 = new U.Builder();
+    const yB = 0.092, yT = 0.089, yR = 0.1255, yS = 0.152, TAU = Math.PI * 2;
+    const ring = (b, k, f, y, rMid, w, d, n) => { for (let i = 0; i < n; i++) { const a = i / n * TAU; b.box(w, 2 * rMid * Math.sin(Math.PI / n) * 1.12, d, Math.cos(a) * rMid, y + Math.sin(a) * rMid, -f, k, { rz: a }); } };
+
+    /* ---- upper receiver + flat-top rail (rail runs on over the handguard) ---- */
+    ex(S, 'blk', [[-0.093, 0.1135], [0.168, 0.1135], [0.168, 0.064], [-0.093, 0.064]], 0.031, 0, { bevel: 0.003 });
+    bx(S, 'blk', -0.093, 0.418, 0.1135, 0.1195, -0.0106, 0.0106);
+    if (!low) teeth(S, 'blk', -0.088, 0.413, 0.1195, 0.01, 0.0106); else bx(S, 'blk', -0.093, 0.418, 0.1195, 0.1245, -0.0095, 0.0095);
+    // ejection port dust cover, deflector, forward assist (right side)
+    bx(S, 'blk', 0.062, 0.136, 0.0705, 0.1075, 0.0155, 0.0173);
+    bx(S, 'blk', 0.046, 0.062, 0.084, 0.113, 0.0155, 0.0228);
+    bx(S, 'blk', 0.004, 0.034, 0.0735, 0.0875, 0.0155, 0.0212); bar(S, 'blk', 0.004, 0.034, 0.0805, 0.0072, 0.0072, 10, 0.0212);
+    if (!low) {
+      bx(S, 'dark', 0.064, 0.134, 0.0703, 0.0712, 0.0155, 0.0176); bar(S, 'steel', 0.062, 0.136, 0.0692, 0.0021, 0.0021, 6, 0.0176);
+      bar(S, 'blk', -0.016, 0.004, 0.0805, 0.0043, 0.0043, 8, 0.0212); bar(S, 'steel', -0.019, -0.016, 0.0805, 0.0043, 0.0043, 8, 0.0212);
+      bx(S, 'dark', 0.092, 0.118, 0.0935, 0.0965, 0.0173, 0.0177);                 // cover latch notch
+    }
+    // takedown + pivot pins (heads both sides)
+    for (const sx of [-1, 1]) {
+      S.cyl(0.0052, 0.0052, 0.003, sx * 0.0165, 0.051, 0.07, 'steel', { axis: 'x', seg: 10 });
+      if (!low) S.cyl(0.0052, 0.0052, 0.003, sx * 0.0165, 0.0525, -0.159, 'steel', { axis: 'x', seg: 10 });
+    }
+
+    /* ---- lower receiver, flared magwell, trigger guard, controls ---- */
+    ex(S, 'blk', [[-0.093, 0.064], [0.17, 0.064], [0.17, 0.04], [0.152, 0.034], [0.152, -0.034], [0.088, -0.034], [0.088, 0.018], [-0.04, 0.018], [-0.062, 0.03], [-0.093, 0.036]], 0.0305, 0, { bevel: 0.0025 });
+    ex(S, 'blk', [[0.081, -0.026], [0.159, -0.026], [0.164, -0.044], [0.076, -0.044]], 0.0345, 0, { bevel: 0.0022 });
+    ex(S, 'blk', [[0.03, 0.02], [0.09, 0.02], [0.09, 0.001], [0.084, -0.012], [0.066, -0.0215], [0.046, -0.0185], [0.036, -0.006]], 0.009, 0, { bevel: 0.0012, holes: [[[0.048, 0.0155], [0.082, 0.0155], [0.082, 0.003], [0.077, -0.005], [0.064, -0.0125], [0.052, -0.01], [0.044, 0.0]]] });
+    ex(S, 'steel', [[0.052, 0.017], [0.058, 0.017], [0.063, -0.002], [0.059, -0.012], [0.054, -0.012], [0.055, 0.0]], 0.0055, 0, { bevel: 0.0008 });
+    // selector (left lever + right stub), bolt catch, magazine release
+    S.cyl(0.0072, 0.0072, 0.005, -0.0178, 0.043, -0.004, 'steel', { axis: 'x', seg: 10 }); bx(S, 'blk', -0.004, 0.026, 0.0405, 0.0455, -0.0232, -0.0158);
+    S.cyl(0.0042, 0.0042, 0.006, 0.0182, 0.043, -0.004, 'steel', { axis: 'x', seg: 8 });
+    bx(S, 'blk', 0.056, 0.076, 0.0355, 0.0415, -0.0178, -0.0152); bx(S, 'blk', 0.07, 0.078, 0.019, 0.0355, -0.0178, -0.0152);
+    S.cyl(0.0068, 0.0068, 0.008, 0.0194, 0.0045, -0.082, 'steel', { axis: 'x', seg: 10 }); S.cyl(0.0035, 0.0035, 0.004, -0.0172, 0.0045, -0.083, 'steel', { axis: 'x', seg: 8 });
+    // buffer-tube end plate (QD sling sockets), castle nut, receiver extension
+    bx(S, 'blk', -0.104, -0.093, 0.04, 0.104, -0.0185, 0.0185);
+    bar(S, 'steel', -0.112, -0.104, yT, 0.0215, 0.0215, 14); bar(S, 'blk', -0.28, -0.112, yT, 0.0158, 0.0158, 14);
+    if (!low) for (const sx of [-1, 1]) S.cyl(0.0045, 0.0045, 0.006, sx * 0.0205, 0.052, 0.101, 'steel', { axis: 'x', seg: 8 });
+
+    /* ---- FDE pistol grip with black grip panels ---- */
+    ex(S, 'fde', [[-0.028, 0.026], [0.032, 0.026], [0.028, 0.004], [0.019, -0.02], [0.012, -0.042], [0.014, -0.062], [0.008, -0.09], [0.0, -0.12], [-0.046, -0.106], [-0.05, -0.068], [-0.046, -0.036], [-0.038, -0.008]], 0.0322, 0, { bevel: 0.0045 });
+    for (const sx of [-1, 1]) ex(S, 'rubber', [[-0.042, -0.04], [-0.012, -0.034], [-0.002, -0.088], [-0.038, -0.098], [-0.046, -0.066]], 0.0036, sx * 0.0167, { bevel: 0.0008 });
+    if (!low) { bx(S, 'steel', -0.026, -0.012, -0.123, -0.119, -0.006, 0.006); }
+
+    /* ---- FDE collapsible stock, black butt plate + lower strut ---- */
+    ex(Pst, 'fde', [[-0.118, 0.108], [-0.264, 0.108], [-0.264, 0.064], [-0.118, 0.064]], 0.045, 0, { bevel: 0.0045 });
+    for (const sx of [-1, 1]) ex(Pst, 'fdeL', [[-0.136, 0.1], [-0.244, 0.1], [-0.244, 0.0725], [-0.136, 0.0725]], 0.0022, sx * 0.0228, { bevel: 0 });
+    ex(Pst, 'rubber', [[-0.262, 0.112], [-0.278, 0.109], [-0.284, 0.018], [-0.273, 0.008], [-0.264, 0.014]], 0.0475, 0, { bevel: 0.003 });
+    ex(Pst, 'blk', [[-0.19, 0.064], [-0.266, 0.064], [-0.272, 0.014], [-0.256, 0.006], [-0.22, 0.034]], 0.03, 0, { bevel: 0.003 });
+    bx(Pst, 'blk', -0.128, -0.19, 0.0585, 0.0645, -0.014, 0.014);
+    if (!low) { Pst.cyl(0.0035, 0.0035, 0.008, 0, 0.056, 0.15, 'steel', { axis: 'y', seg: 6 }); Pst.cyl(0.0058, 0.0058, 0.003, 0, 0.0505, 0.252, 'steel', { axis: 'y', seg: 8 }); }
+
+    /* ---- RIS quad rail: black core, 4 rails, FDE ribbed panels ---- */
+    bar(S, 'blk', 0.168, 0.186, yB, 0.0245, 0.0245, 12); bar(S, 'blk', 0.186, 0.418, yB, 0.0215, 0.0215, 12); bar(S, 'blk', 0.418, 0.426, yB, 0.0222, 0.0222, 12);
+    bx(S, 'blk', 0.186, 0.418, 0.0585, 0.0705, -0.0106, 0.0106);
+    bx(S, 'blk', 0.186, 0.418, 0.0865, 0.0975, 0.0215, 0.027); bx(S, 'blk', 0.186, 0.418, 0.0865, 0.0975, -0.027, -0.0215);
+    if (!low) {
+      for (let f = 0.19; f < 0.414; f += 0.01) { bx(S, 'blk', f, f + 0.005, 0.0525, 0.0585, -0.0106, 0.0106); bx(S, 'blk', f, f + 0.005, 0.0865, 0.0975, 0.027, 0.0325); bx(S, 'blk', f, f + 0.005, 0.0865, 0.0975, -0.0325, -0.027); }
+      for (const sx of [-1, 1]) for (let i = 0; i < 4; i++) bx(S, 'dark', 0.386 + i * 0.0075, 0.391 + i * 0.0075, 0.1, 0.108, sx * 0.0236, sx * 0.0243);   // lightening slots
+      for (const sx of [-1, 1]) { S.cyl(0.0034, 0.0034, 0.0026, sx * 0.0326, 0.0925, -0.4, 'steel', { axis: 'x', seg: 8 }); S.cyl(0.0034, 0.0034, 0.0026, sx * 0.0326, 0.0925, -0.196, 'steel', { axis: 'x', seg: 8 }); }
+    } else { bx(S, 'blk', 0.186, 0.418, 0.0525, 0.0585, -0.0095, 0.0095); bx(S, 'blk', 0.186, 0.418, 0.0865, 0.0975, 0.027, 0.0325); bx(S, 'blk', 0.186, 0.418, 0.0865, 0.0975, -0.0325, -0.027); }
+    // ribbed FDE rail panels (left, right, bottom)
+    for (const sx of [-1, 1]) {
+      ex(S, 'fdeD', [[0.213, 0.1065], [0.373, 0.1065], [0.378, 0.1], [0.378, 0.084], [0.373, 0.0775], [0.213, 0.0775], [0.208, 0.084], [0.208, 0.1]], 0.011, sx * 0.0292, { bevel: 0.002 });
+      if (!low) for (let i = 0; i < 10; i++) { const f = 0.216 + i * 0.0158; bx(S, 'fde', f, f + 0.0085, 0.0783, 0.1057, sx * 0.0346, sx * 0.0362); }
+    }
+    bx(S, 'fdeD', 0.208, 0.378, 0.0475, 0.0565, -0.0185, 0.0185);
+    if (!low) for (let i = 0; i < 10; i++) { const f = 0.216 + i * 0.0158; bx(S, 'fde', f, f + 0.0085, 0.0452, 0.0476, -0.0185, 0.0185); }
+    else bx(S, 'fde', 0.208, 0.378, 0.0455, 0.0476, -0.0185, 0.0185);
+
+    /* ---- barrel, A2 birdcage ---- */
+    bar(S, 'park', 0.426, 0.47, yB, 0.0102, 0.0102, 10); bar(S, 'steel', 0.462, 0.47, yB, 0.0128, 0.0128, 10);
+    bar(S, 'blk', 0.47, 0.53, yB, 0.0152, 0.0165, 12); bar(S, 'blk', 0.53, 0.5325, yB, 0.0165, 0.0135, 12);
+    if (!low) for (let i = 0; i < 6; i++) { const a = i / 6 * TAU + 0.52; S.box(0.0075, 0.0085, 0.032, Math.cos(a) * 0.0152, yB + Math.sin(a) * 0.0152, -0.505, 'dark', { rz: a }); }
+
+    /* ---- flip-up sights: A2 front post (gas block) + aperture rear, both on the sight line y = 0.152 ---- */
+    bx(S, 'blk', 0.392, 0.416, yR, 0.1335, -0.0125, 0.0125); bx(Psi, 'blk', 0.4, 0.408, 0.1335, 0.1405, -0.0095, 0.0095);
+    bx(Psi, 'blk', 0.4, 0.409, 0.1405, 0.152, -0.0014, 0.0014);                      // post, tip at the sight line
+    for (const sx of [-1, 1]) bx(Psi, 'blk', 0.4, 0.409, 0.1335, 0.1485, sx * 0.0078, sx * 0.0108);       // protective wings
+    bx(Psi, 'blk', -0.09, -0.06, yR, 0.1335, -0.0125, 0.0125); bx(Psi, 'blk', -0.083, -0.073, 0.1335, 0.1445, -0.0042, 0.0042);
+    if (!low) {
+      ring(Psi, 'blk', -0.078, yS, 0.0054, 0.0021, 0.003, 24); ring(Psi, 'steel', -0.0809, yS, 0.0054, 0.0021, 0.0008, 24);
+      for (const sx of [-1, 1]) { Psi.cyl(0.0048, 0.0048, 0.006, sx * 0.0092, 0.1395, 0.077, 'steel', { axis: 'x', seg: 8 }); bx(Psi, 'blk', -0.084, -0.072, 0.1335, 0.1465, sx * 0.0068, sx * 0.0112); }
+    } else { bx(Psi, 'blk', -0.083, -0.073, 0.1445, 0.1595, -0.0075, 0.0075); }
+
+    /* ---- magazine: FDE PMAG, window, grid pads, black floorplate (part: mag) ---- */
+    ex(Pm, 'fde', [[0.094, 0.03], [0.152, 0.03], [0.155, -0.05], [0.168, -0.115], [0.182, -0.18], [0.12, -0.184], [0.104, -0.12], [0.096, -0.05]], 0.0252, 0, { bevel: 0.0022 });
+    ex(Pm, 'rubber', [[0.116, -0.171], [0.178, -0.167], [0.18, -0.184], [0.114, -0.188]], 0.0285, 0, { bevel: 0.0015 });
+    if (!low) {
+      for (const sx of [-1, 1]) {
+        for (let i = 0; i < 7; i++) { const y = -0.058 - i * 0.0155, fF = 0.149 + (-0.05 - y) * 0.205 - 0.0105; bx(Pm, 'dark', fF - 0.0027, fF + 0.0027, y - 0.0032, y + 0.0032, sx * 0.01255, sx * 0.0131); }
+        for (let r = 0; r < 4; r++) for (let q = 0; q < 2; q++) { const y = -0.064 - r * 0.026, fb = 0.112 + (-0.05 - y) * 0.06 + q * 0.0165; bx(Pm, 'fdeD', fb, fb + 0.0125, y - 0.0105, y + 0.0105, sx * 0.01255, sx * 0.0133); }
+      }
+      for (let i = 0; i < 4; i++) { const y = -0.015 - i * 0.012; bx(Pm, 'fdeD', 0.1 + i * 0.0006, 0.149 + i * 0.002, y, y + 0.0035, -0.0127, 0.0127); }
+    }
+    /* ---- charging handle (part: charge): latch stub + ambidextrous T-latch ---- */
+    bx(Pc, 'blk', -0.108, -0.093, 0.1, 0.1155, -0.0112, 0.0112); bx(Pc, 'blk', -0.12, -0.1, 0.1, 0.1085, -0.0125, 0.0125);
+    bx(Pc, 'blk', -0.119, -0.102, 0.0985, 0.1055, -0.0345, -0.0125, { rz: 0.0 }); bx(Pc, 'blk', -0.119, -0.102, 0.0985, 0.1055, 0.0125, 0.0285);
+    if (!low) { bx(Pc, 'dark', -0.116, -0.104, 0.1055, 0.1068, -0.03, -0.013); bx(Pc, 'dark', -0.116, -0.104, 0.1055, 0.1068, 0.013, 0.025); }
+
+    c.root.add(S.build(M)); addPart(c, Pst, M, 'stock'); addPart(c, Psi, M, 'sights'); const mag = part(Pm, M); const ch = part(Pc, M); c.root.add(mag, ch);
+    mag.userData.pullDir = new THREE.Vector3(0, -1, 0); mag.userData.pullDist = 0.23; ch.userData.travel = 0.07;
+    c.parts.mag = mag; c.parts.charge = ch;
+
+    // teal "-04" marking on the left of the lower receiver
+    { const m = mats();
+      const mk = new THREE.Mesh(new THREE.PlaneGeometry(0.036, 0.018), m._m04); mk.rotation.y = -Math.PI / 2; mk.position.set(-0.0159, 0.047, 0.043); mk.renderOrder = 2; c.root.add(mk); }
+
+    A(c, 'muzzle', 0, yB, 0.5325); A(c, 'eject', 0.02, 0.09, 0.098); A(c, 'gripR', 0, 0, 0); A(c, 'trigger', 0, 0.002, 0.058); A(c, 'gripL', 0, 0.043, 0.3, 'under');
+    A(c, 'ads', 0, yS, -0.078); A(c, 'load', 0, -0.03, 0.125); A(c, 'magGrip', 0, -0.1, 0.138);
+    c.size = { length: 0.84, height: 0.3 };
+  }
+
+  /* ================= AK ================= */
+  function buildAK(c) {
+    const M = c.m, S = new U.Builder(), Pst = new U.Builder(), Pm = new U.Builder(), Pc = new U.Builder(), low = c.low, Psi = new U.Builder(), Pi2 = new U.Builder();
+    ex(S, 'park', [[-0.17, 0.065], [0.15, 0.065], [0.15, 0.02], [0.115, 0.02], [0.115, -0.03], [0.06, -0.03], [0.06, 0.0], [0.03, 0.0], [0.03, 0.01], [-0.06, 0.01], [-0.1, 0.03], [-0.17, 0.03]], 0.034);
+    ex(S, 'park', [[-0.145, 0.065], [0.14, 0.065], [0.137, 0.112], [0.0, 0.124], [-0.135, 0.12], [-0.15, 0.1]], 0.037, 0, { bevel: 0.004 });
+    if (!low) { bx(S, 'park', -0.1, 0.1, 0.105, 0.111, -0.0195, 0.0195); bx(S, 'blued', -0.12, 0.02, 0.04, 0.047, 0.0185, 0.0215); }
+    bx(Psi, 'blued', 0.115, 0.165, 0.118, 0.13, -0.012, 0.012); bx(Psi, 'blued', 0.12, 0.162, 0.13, 0.15, -0.011, -0.0045); bx(Psi, 'blued', 0.12, 0.162, 0.13, 0.15, 0.0045, 0.011);
+    bar(S, 'blued', 0.14, 0.5, 0.078, 0.0115, 0.0105, 10); bar(S, 'park', 0.13, 0.40, 0.108, 0.0125, 0.0125, 8);
+    ex(S, 'wood', [[0.15, 0.1], [0.36, 0.1], [0.37, 0.115], [0.36, 0.126], [0.15, 0.126]], 0.036, 0, { bevel: 0.005 });
+    ex(S, 'wood', [[0.13, 0.036], [0.335, 0.036], [0.347, 0.055], [0.347, 0.085], [0.335, 0.102], [0.13, 0.102]], 0.046, 0, { bevel: 0.006 });
+    bx(S, 'blued', 0.36, 0.405, 0.062, 0.125, -0.012, 0.012); bx(S, 'blued', 0.45, 0.47, 0.062, 0.12, -0.012, 0.012); bx(Psi, 'blued', 0.457, 0.463, 0.12, 0.145, -0.0025, 0.0025);
+    bx(Psi, 'blued', 0.452, 0.468, 0.12, 0.14, -0.012, -0.008); bx(Psi, 'blued', 0.452, 0.468, 0.12, 0.14, 0.008, 0.012);
+    bar(S, 'blued', 0.5, 0.548, 0.078, 0.0125, 0.0125, 10); bar(S, 'blued', 0.46, 0.5, 0.078, 0.0135, 0.0135, 10);
+    ex(Pst, 'wood', [[-0.17, 0.062], [-0.2, 0.078], [-0.3, 0.088], [-0.328, 0.09], [-0.335, -0.04], [-0.31, -0.058], [-0.2, -0.01], [-0.17, 0.012]], 0.036, 0, { bevel: 0.005 });
+    ex(Pst, 'steel', [[-0.328, 0.09], [-0.338, 0.088], [-0.345, -0.04], [-0.335, -0.04]], 0.037);
+    ex(S, 'wood', [[-0.015, 0.02], [0.03, 0.02], [0.02, -0.115], [-0.035, -0.115]], 0.03, 0, { bevel: 0.004 });
+    ex(S, 'park', [[0.0, 0.0], [0.1, 0.0], [0.1, -0.03], [0.095, -0.03], [0.095, -0.004], [0.0, -0.004]], 0.006); bx(S, 'blued', 0.025, 0.032, -0.022, 0.008, -0.003, 0.003);
+    ex(Pm, 'park', [[0.118, 0.03], [0.13, -0.06], [0.165, -0.13], [0.206, -0.172], [0.172, -0.205], [0.118, -0.14], [0.082, -0.06], [0.072, 0.03]], 0.03, 0, { bevel: 0.002 });
+    if (!low) for (let i = 0; i < 4; i++) ex(Pm, 'blued', [[0.121 + i * 0.012, -0.02 - i * 0.03], [0.128 + i * 0.012, -0.02 - i * 0.03], [0.119 + i * 0.012, -0.034 - i * 0.03], [0.112 + i * 0.012, -0.034 - i * 0.03]], 0.032);
+    bx(Pc, 'blued', 0.0, 0.03, 0.086, 0.104, 0.018, 0.032); bx(Pc, 'steel', 0.005, 0.025, 0.09, 0.1, 0.03, 0.04);
+    c.root.add(S.build(M)); addPart(c, Pst, M, 'stock'); addPart(c, Psi, M, 'sights'); const mag = part(Pm, M), ch = part(Pc, M); c.root.add(mag, ch);
+    mag.userData.pullDir = new THREE.Vector3(0, -0.9, -0.43).normalize(); mag.userData.pullDist = 0.24; ch.userData.travel = 0.085;
+    c.parts.mag = mag; c.parts.charge = ch;
+    A(c, 'muzzle', 0, 0.078, 0.548); A(c, 'eject', 0.024, 0.098, 0.0); A(c, 'gripR', 0, 0, 0); A(c, 'trigger', 0, 0.002, 0.05); A(c, 'gripL', 0, 0.03, 0.25, 'under');
+    A(c, 'ads', 0, 0.147, 0.138); A(c, 'load', 0, -0.03, 0.1); A(c, 'magGrip', 0, -0.1, 0.13);
+    c.size = { length: 0.9, height: 0.3 };
+  }
+
+  /* ================= MP5 =================
+     HK MP5A3-style SMG with a flashlight handguard: black stamped receiver with drum rear sight + wings, hooded front sight on the
+     3-lug muzzle, polymer trigger pack with finger-grooved grip and selector, curved 30-round magazine, tactical handguard (side ribs,
+     top rail, left-mounted light), retractable wire-frame stock with a dished butt plate.
+     Coordinates: f = toward the muzzle, y up, x right. Bore axis y = 0.078, sight line y = 0.136 (rear drum centre f = -0.078). */
+  function buildMP5(c) {
+    const M = c.m, S = new U.Builder(), Pst = new U.Builder(), Pm = new U.Builder(), Pc = new U.Builder(), low = c.low, Psi = new U.Builder(), Pi2 = new U.Builder(), TAU = Math.PI * 2;
+    const yB = 0.078, yS = 0.136, sg = low ? 12 : 22;
+    const ring = (b, k, f, y, rMid, w, d, n, x) => { for (let i = 0; i < n; i++) { const a = i / n * TAU; b.box(w, 2 * rMid * Math.sin(Math.PI / n) * 1.12, d, (x || 0) + Math.cos(a) * rMid, y + Math.sin(a) * rMid, -f, k, { rz: a }); } };
+
+    /* ---- stamped receiver, rear cap, front retaining ring ---- */
+    bar(S, 'mp5r', -0.113, 0.158, yB, 0.0285, 0.0285, sg);
+    bx(S, 'mp5r', -0.113, 0.158, 0.0455, 0.062, -0.0262, 0.0262);
+    bar(S, 'blued', -0.13, -0.113, yB, 0.0305, 0.0305, sg); bar(S, 'steel', -0.1325, -0.13, yB, 0.0235, 0.0235, sg);
+    bar(S, 'blued', 0.152, 0.168, yB, 0.0325, 0.0325, sg);
+    bx(S, 'mp5r', -0.1, 0.14, 0.1055, 0.1075, -0.009, 0.009);                                  // flattened top of the stamping
+    if (!low) {
+      for (const sx of [-1, 1]) { bx(S, 'mp5d', -0.09, 0.145, 0.0735, 0.0765, sx * 0.0283, sx * 0.0291); bx(S, 'mp5d', -0.09, 0.145, 0.0985, 0.1005, sx * 0.0166, sx * 0.0172); }   // stamped flutes
+      bx(S, 'mp5d', -0.11, 0.156, 0.0475, 0.0485, -0.0266, 0.0266);
+    }
+    // ejection port (right side): dark recess, raised rim, brass deflector lip
+    bx(S, 'dark', 0.0, 0.052, 0.066, 0.089, 0.0274, 0.0289);
+    bx(S, 'blued', -0.004, 0.056, 0.089, 0.0915, 0.0262, 0.0299); bx(S, 'blued', -0.004, 0.056, 0.0635, 0.066, 0.0262, 0.0299);
+    bx(S, 'blued', -0.004, 0.0, 0.066, 0.089, 0.0262, 0.0299); bx(S, 'blued', 0.052, 0.056, 0.066, 0.089, 0.0262, 0.0299);
+    if (!low) bx(S, 'steel', 0.012, 0.044, 0.0705, 0.0745, 0.0268, 0.0276);                   // bolt face seen through the port
+
+    /* ---- polymer trigger pack: housing, selector, guard, trigger, mag release ---- */
+    ex(S, 'poly', [[-0.04, 0.052], [0.06, 0.052], [0.06, 0.004], [0.034, 0.004], [0.03, 0.0], [0.0, 0.0], [-0.02, 0.004], [-0.04, 0.03]], 0.0345, 0, { bevel: 0.003 });
+    ex(S, 'poly', [[0.012, 0.006], [0.064, 0.006], [0.064, -0.012], [0.058, -0.034], [0.046, -0.044], [0.03, -0.044], [0.02, -0.03], [0.012, -0.01]], 0.0245, 0,
+      { bevel: 0.0025, holes: [[[0.03, 0.0], [0.056, 0.0], [0.0545, -0.018], [0.048, -0.03], [0.038, -0.032], [0.031, -0.022]]] });
+    ex(S, 'blued', [[0.046, 0.016], [0.0505, 0.016], [0.0548, -0.002], [0.0528, -0.017], [0.0492, -0.017], [0.0495, -0.002]], 0.0068, 0, { bevel: 0.0008 });
+    S.cyl(0.0085, 0.0085, 0.006, -0.0198, 0.034, -0.013, 'blued', { axis: 'x', seg: 14 });              // selector hub + lever (left)
+    bx(S, 'steel', -0.024, -0.004, 0.0315, 0.0372, -0.0258, -0.0192); bx(S, 'dark', -0.0235, -0.0165, 0.0338, 0.0342, -0.0262, -0.0255);
+    bx(S, 'blued', 0.034, 0.058, 0.0035, 0.0085, -0.0205, -0.0125);                                 // mag release paddle behind the magwell
+    for (const sx of [-1, 1]) { S.cyl(0.0048, 0.0048, 0.0045, sx * 0.0172, 0.04, -0.034, 'steel', { axis: 'x', seg: 10 }); S.cyl(0.0048, 0.0048, 0.0045, sx * 0.0172, 0.043, 0.026, 'steel', { axis: 'x', seg: 10 }); }   // trigger pack retaining pins
+    // magwell
+    bx(S, 'mp5r', 0.056, 0.114, -0.002, 0.05, -0.0158, 0.0158); bx(S, 'dark', 0.058, 0.112, -0.004, 0.0, -0.0124, 0.0124);
+    bx(S, 'steel', 0.0575, 0.0685, 0.0225, 0.0345, 0.0158, 0.0178);                                 // mag catch button (right)
+
+    /* ---- pistol grip: finger grooves, palm swell, stippled panels, base cap ---- */
+    ex(S, 'poly', [[-0.006, 0.03], [0.034, 0.03], [0.0285, 0.0], [0.0245, -0.03], [0.0268, -0.047], [0.0235, -0.072], [0.0245, -0.097], [0.018, -0.118],
+      [-0.034, -0.118], [-0.0305, -0.09], [-0.0258, -0.06], [-0.0218, -0.03], [-0.0125, -0.003]], 0.0312, 0, { bevel: 0.0038 });
+    bx(S, 'blued', -0.036, 0.02, -0.1245, -0.118, -0.0168, 0.0168);
+    if (!low) for (const sx of [-1, 1]) for (let r = 0; r < 9; r++) for (let q = 0; q < 5; q++) {
+      const y = -0.014 - r * 0.0095, fr = -0.0155 + 0.0006 * r + q * 0.0085 - 0.0001 * r * r * 0.1; bx(S, 'dark', fr, fr + 0.0034, y, y + 0.0034, sx * 0.0153, sx * 0.0162);
+    }
+
+    /* ---- sights: drum rear sight with wings, hooded front post ---- */
+    bx(Psi, 'blued', -0.092, -0.064, 0.1, 0.126, -0.0125, 0.0125);
+    for (const sx of [-1, 1]) bx(Psi, 'blued', -0.093, -0.063, 0.1, 0.151, sx * 0.0165, sx * 0.0188);   // wing guards
+    if (!low) {
+      ring(Psi, 'blued', -0.0785, yS, 0.00575, 0.0022, 0.006, 40); ring(Psi, 'steel', -0.0817, yS, 0.00575, 0.0022, 0.0008, 40);   /* thin aperture ring: 4.5mm hole, 1.5mm wall */
+      for (const sx of [-1, 1]) { Psi.cyl(0.0112, 0.0112, 0.0042, sx * 0.0136, yS, 0.0785, 'steel', { axis: 'x', seg: 16 }); for (let i = 0; i < 8; i++) { const a = i / 8 * TAU; Psi.box(0.0046, 0.0018, 0.0034, sx * 0.0136, yS + Math.sin(a) * 0.0112, 0.0785 + Math.cos(a) * 0.0112, 'dark', { rx: a }); } }
+    } else { bx(Psi, 'blued', -0.0865, -0.0705, 0.1245, 0.1475, -0.0113, 0.0113); }
+    // front sight: collar on the barrel, pedestal, protective hood ring and post
+    bar(S, 'blued', 0.386, 0.4, yB, 0.0138, 0.0138, 12); bx(Psi, 'blued', 0.388, 0.398, 0.088, 0.1215, -0.0065, 0.0065);
+    if (!low) ring(Psi, 'blued', 0.393, 0.1335, 0.0135, 0.004, 0.011, 36); else bx(Psi, 'blued', 0.388, 0.398, 0.1175, 0.1495, -0.0145, 0.0145);
+    bx(Psi, 'dark', 0.3915, 0.3945, 0.119, 0.136, -0.0011, 0.0011);
+
+    /* ---- barrel, 3-lug muzzle ---- */
+    bar(S, 'blued', 0.318, 0.386, yB, 0.0088, 0.0088, 12); bar(S, 'blued', 0.4, 0.408, yB, 0.0122, 0.0122, 14); bar(S, 'dark', 0.4075, 0.4083, yB, 0.0062, 0.0062, 10);
+    if (!low) for (let i = 0; i < 3; i++) { const a = i / 3 * TAU + 0.5; S.box(0.0052, 0.0052, 0.006, Math.cos(a) * 0.0122, yB + Math.sin(a) * 0.0122, -0.4, 'blued', { rz: a }); }
+
+    /* ---- tactical handguard: oval polymer body, end caps, side ribs, vents, top rail, left flashlight ---- */
+    bar(S, 'poly', 0.158, 0.318, yB - 0.004, 0.0315, 0.0315, low ? 14 : 24); bar(S, 'blued', 0.314, 0.324, yB - 0.004, 0.0328, 0.0328, 16);
+    bx(S, 'poly', 0.158, 0.318, 0.1, 0.1095, -0.0125, 0.0125);                                         // top flat for the rail
+    if (!low) {
+      for (const sx of [-1, 1]) for (let r = 0; r < 3; r++) { const y = 0.058 + r * 0.0105 - 0.004; bx(S, 'poly', 0.172, 0.304, y, y + 0.0035, sx * 0.0309, sx * 0.0336); }
+      for (const sx of [-1, 1]) for (let i = 0; i < 6; i++) { const f = 0.178 + i * 0.022; bx(S, 'dark', f, f + 0.012, 0.0405, 0.0425, sx * 0.0075, sx * 0.0125); }
+      for (let i = 0; i < 6; i++) { const f = 0.178 + i * 0.022; bx(S, 'dark', f, f + 0.012, 0.1063, 0.1085, -0.0025, 0.0025); }
+      bx(S, 'blued', 0.19, 0.31, 0.1095, 0.1135, -0.0105, 0.0105);                                        // short rail at the front of the handguard
+      for (let i = 0; i < 9; i++) { const f = 0.194 + i * 0.0133; bx(S, 'dark', f, f + 0.0055, 0.1133, 0.1148, -0.0102, 0.0102); }
+      for (const sx of [-1, 1]) bx(S, 'blued', 0.19, 0.31, 0.1095, 0.1125, sx * 0.0105, sx * 0.0118);
+    } else bx(S, 'blued', 0.19, 0.31, 0.1095, 0.1145, -0.0105, 0.0105);
+    // flashlight (left side): body, mount clamp, bezel, lens, switch
+    bar(S, 'poly', 0.262, 0.346, 0.068, 0.0128, 0.0128, low ? 10 : 18, -0.0398); bar(S, 'steel', 0.343, 0.357, 0.068, 0.0145, 0.0138, 14, -0.0398); bar(S, 'lens', 0.356, 0.3568, 0.068, 0.0108, 0.0108, 14, -0.0398);
+    bx(S, 'blued', 0.272, 0.286, 0.058, 0.078, -0.036, -0.0295); bx(S, 'blued', 0.322, 0.336, 0.058, 0.078, -0.036, -0.0295);
+    if (!low) { bx(S, 'steel', 0.292, 0.306, 0.0795, 0.0832, -0.0434, -0.0362); bar(S, 'chrome', 0.3465, 0.343, 0.068, 0.0112, 0.0118, 14, -0.0398); }
+
+    /* ---- retractable wire-frame stock + dished butt plate ---- */
+    for (const sx of [-1, 1]) {
+      bar(Pst, 'steel', -0.296, -0.131, 0.099, 0.0042, 0.0042, 8, sx * 0.0208); bar(Pst, 'steel', -0.296, -0.131, 0.047, 0.0042, 0.0042, 8, sx * 0.0208);
+      for (const f of [-0.134, -0.213, -0.29]) bx(Pst, 'steel', f - 0.0035, f + 0.0035, 0.0445, 0.1015, sx * 0.0185, sx * 0.0231);
+    }
+    for (const y of [0.099, 0.047]) Pst.cyl(0.0042, 0.0042, 0.0476, 0, y, 0.1335, 'steel', { axis: 'x', seg: 8 });   // stock cross tubes into the rear cap
+    bx(Pst, 'blued', -0.1385, -0.1335, 0.0455, 0.0525, -0.0232, 0.0232); bx(Pst, 'blued', -0.1385, -0.1335, 0.0935, 0.1045, -0.0232, 0.0232);
+    if (!low) { Pst.cyl(0.0042, 0.0042, 0.006, -0.0255, 0.1, -0.1335, 'steel', { axis: 'x', seg: 8 }); Pst.cyl(0.0058, 0.0058, 0.004, -0.0282, 0.1, -0.1335, 'steel', { axis: 'x', seg: 10 }); }   // stock release stud (left)
+    ex(Pst, 'poly', [[-0.286, 0.11], [-0.3, 0.108], [-0.306, 0.07], [-0.308, 0.02], [-0.3, -0.006], [-0.286, -0.006]], 0.0405, 0, { bevel: 0.004 });
+    ex(Pst, 'rubber', [[-0.304, 0.104], [-0.311, 0.07], [-0.312, 0.02], [-0.304, -0.002], [-0.3, 0.02], [-0.3, 0.07]], 0.0365, 0, { bevel: 0.0022 });
+    for (const sx of [-1, 1]) ex(Pst, 'poly', [[-0.286, 0.108], [-0.3, 0.106], [-0.306, 0.07], [-0.304, 0.02], [-0.296, -0.004], [-0.286, -0.004]], 0.004, sx * 0.0222, { bevel: 0.0015 });   // butt side flanges
+    bx(Pst, 'blued', -0.292, -0.285, 0.088, 0.106, -0.012, 0.012);
+
+    /* ---- magazine (part: mag): curved 30-round box, side beads, floor plate ---- */
+    { const fc = (y) => 0.083 + 0.04 * Math.pow(Math.max(0, (0.035 - y) / 0.215), 1.8), half = (y) => 0.0245 - 0.003 * ((0.035 - y) / 0.215), ys = [0.035, -0.01, -0.05, -0.09, -0.12, -0.15, -0.172];
+      const front = ys.map((y) => [fc(y) + half(y), y]), rear = ys.map((y) => [fc(y) - half(y), y]).reverse();
+      ex(Pm, 'mp5r', front.concat(rear), 0.0272, 0, { bevel: 0.0022 });
+      if (!low) for (const sx of [-1, 1]) { for (const y of [-0.03, -0.06, -0.09, -0.12, -0.145]) bx(Pm, 'mp5d', fc(y) - 0.013, fc(y) + 0.013, y - 0.0013, y + 0.0013, sx * 0.0134, sx * 0.0141);
+        for (let i = 0; i < 5; i++) { const y = -0.04 - i * 0.026; bx(Pm, 'dark', fc(y) - half(y) + 0.0035, fc(y) - half(y) + 0.0075, y, y + 0.0045, sx * 0.0134, sx * 0.0142); } }   // witness holes
+      const fb = fc(-0.172); ex(Pm, 'poly', [[fb - 0.0245, -0.164], [fb + 0.0245, -0.164], [fb + 0.0268, -0.182], [fb - 0.0268, -0.182]], 0.0298, 0, { bevel: 0.0016 }); }
+
+    /* ---- cocking handle (part: charge): left-side tube with a hooked lug ---- */
+    bar(Pc, 'blued', 0.118, 0.176, 0.071, 0.0046, 0.0046, 10, -0.0338); bx(Pc, 'blued', 0.106, 0.124, 0.06, 0.085, -0.0432, -0.0306); bx(Pc, 'blued', 0.106, 0.118, 0.085, 0.092, -0.0432, -0.0366);
+    if (!low) for (let i = 0; i < 4; i++) bx(Pc, 'dark', 0.108 + i * 0.0035, 0.1105 + i * 0.0035, 0.062, 0.083, -0.0436, -0.0431);
+
+    c.root.add(S.build(M)); addPart(c, Pst, M, 'stock'); addPart(c, Psi, M, 'sights'); const mag = part(Pm, M), ch = part(Pc, M); c.root.add(mag, ch);
+    mag.userData.pullDir = new THREE.Vector3(0, -0.95, -0.3).normalize(); mag.userData.pullDist = 0.22; ch.userData.travel = 0.05;
+    c.parts.mag = mag; c.parts.charge = ch;
+    A(c, 'muzzle', 0, yB, 0.408); A(c, 'eject', 0.028, 0.078, 0.025); A(c, 'gripR', 0, 0, 0); A(c, 'trigger', 0, 0.002, 0.048); A(c, 'gripL', 0, 0.035, 0.24, 'under');
+    A(c, 'ads', 0, yS, -0.078); A(c, 'load', 0, -0.03, 0.085); A(c, 'magGrip', 0, -0.1, 0.095);
+    c.size = { length: 0.72, height: 0.28 };
+  }
+
+  /* ================= pistols ================= */
+  function pistolGrip(S, shape, tint, w) {
+    ex(S, 'blued', shape, w, 0, { bevel: 0.003 });
+    const inner = shape.map((p) => [p[0] * 0.9 + (p[0] > 0 ? 0 : 0), p[1] * 0.95]);
+    ex(S, tint, inner, w + 0.006, 0, { bevel: 0.002 });
+  }
+  /* ================= DESERT EAGLE .44 MAG =================
+     Magnum Research Mark XIX in brushed stainless: fixed 6" barrel block with four muzzle-brake ports, picatinny rails on top and underneath
+     (gunmetal), short cycling slide with 15 angled serrations, round ambidextrous safety lever, black spur hammer, notched rear sight + ramped
+     front sight, gunmetal trigger guard / backstrap, black stippled rubber grip with medallion and a stainless magazine base plate.
+     Side profiles are traced from a reference photo (600 x 511 px, muzzle on the left) and warped into weapon space by px() / py():
+       f  (toward the muzzle) = slide scale anchored on the muzzle face (f 0.205), blended into a grip scale anchored on the front strap,
+       y  (up) = piecewise-linear through the sight line, bore (y 0.066), trigger (y 0.004) and magazine floor,
+     so every anchor and the hand-hold proxies in 56_viewmodel.js (grip box, frame, slide) sit exactly where they did on the old model.
+     Only the slide (with sights, safety and hammer) cycles; the barrel and rails are fixed to the frame like on the real gun. */
+  function buildDeagle(c) {
+    const M = c.m, S = new U.Builder(), Ps = new U.Builder(), Pm = new U.Builder(), low = c.low, Psi = new U.Builder(), Pi2 = new U.Builder(), TAU = Math.PI * 2;
+    /* ---- photo px -> weapon space ---- */
+    const fS = (x) => 0.205 - (x - 14) * 0.000461, fG = (x) => 0.0295 - (x - 397) * 0.00056;
+    const gwt = (y) => { const t = Math.min(1, Math.max(0, (y - 225) / 105)); return t * t * (3 - 2 * t); };       // 0 = slide scale, 1 = grip scale
+    const px = (x, y) => { const w = gwt(y); return fS(x) * (1 - w) + fG(x) * w; };
+    const KY = [[132, 0.0985], [178, 0.066], [220, 0.0363], [268, 0.004], [425, -0.12], [448, -0.138]];             // [photo y, weapon y]
+    const py = (y) => { let i = 0; while (i < KY.length - 2 && y > KY[i + 1][0]) i++; const a = KY[i], b = KY[i + 1]; return a[1] + (y - a[0]) * (b[1] - a[1]) / (b[0] - a[0]); };
+    const Q = (pts) => pts.map((p) => [px(p[0], p[1]), py(p[1])]);
+    /* side-profile extrusion whose silhouette is exactly the outline (bevel is cut inward); optional holes */
+    const xe = (b, k, pts, w, x, o) => {
+      o = o || {}; const bev = o.bevel === undefined ? 0.0008 : o.bevel, sh = new THREE.Shape();
+      pts.forEach((p, i) => (i ? sh.lineTo(p[0], p[1]) : sh.moveTo(p[0], p[1])));
+      if (o.holes) for (const h of o.holes) { const pa = new THREE.Path(); h.forEach((q, i) => (i ? pa.lineTo(q[0], q[1]) : pa.moveTo(q[0], q[1]))); sh.holes.push(pa); }
+      const g = new THREE.ExtrudeGeometry(sh, { depth: Math.max(0.0005, w - bev * 2), bevelEnabled: bev > 0, bevelSize: bev, bevelThickness: bev, bevelOffset: -bev, bevelSegments: 1, curveSegments: 6 });
+      g.translate(0, 0, -(w - bev * 2) / 2); g.applyMatrix4(new THREE.Matrix4().makeRotationY(Math.PI / 2));
+      return b.geo(g, k, new THREE.Matrix4().makeTranslation(x || 0, 0, 0), o.color);
+    };
+    const ell = (cx, cy, rx, ry, n) => Array.from({ length: n }, (_, i) => [cx + Math.cos(i / n * TAU) * rx, cy + Math.sin(i / n * TAU) * ry]);
+    const sd = (sx, a, b) => (sx < 0 ? [-b, -a] : [a, b]);          // x range a..b on side sx, ordered low -> high (box widths must stay positive)
+    const decal = (key, wd, ht, f, y, x) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(wd, ht), M[key]); m.rotation.y = x < 0 ? -Math.PI / 2 : Math.PI / 2; m.position.set(x, y, -f); m.renderOrder = 2; c.root.add(m); };
+
+    /* ================= static frame: barrel block, rails, sights, guard, grip ================= */
+    /* barrel body (runs back inside the slide so nothing opens up while it cycles) + wider muzzle block */
+    xe(S, 'dgSS', Q([[80, 140], [87, 140], [89, 148], [272, 148], [281, 137], [458, 137], [458, 221], [350, 221], [350, 228], [80, 228]]), 0.029, 0, { bevel: 0.0012 });
+    xe(S, 'dgSS', Q([[14, 146], [16, 140], [80, 140], [80, 228], [35, 228], [31, 223], [18, 194], [15, 183]]), 0.031, 0, { bevel: 0.0012 });
+    S.cyl(0.0068, 0.0068, 0.0006, 0, 0.066, -0.2052, 'dark', { axis: 'z', seg: low ? 8 : 14 });                       // bore
+    /* top picatinny rail (teeth) and lower gunmetal rail */
+    const T1 = [[94, 110], [118, 129], [141, 155], [164, 174], [186, 198], [210, 221], [232, 244], [255, 270]];
+    const T2 = [[58, 74], [81, 95], [102, 113], [123, 134], [144, 155], [166, 175], [187, 196], [208, 218], [229, 238], [250, 260], [270, 279]];
+    if (low) { bx(S, 'dgSSD', fS(270), fS(94), py(148), py(143), -0.0105, 0.0105); bx(S, 'dgGM', fS(279), fS(58), py(245), py(228), -0.0105, 0.0105); }
+    else {
+      for (const t of T1) bx(S, 'dgSSD', fS(t[1]), fS(t[0]), py(148), py(141), -0.0105, 0.0105);
+      bx(S, 'dgGM', fS(282), fS(57), py(239), py(228), -0.0105, 0.0105);
+      for (const t of T2) bx(S, 'dgGM', fS(t[1]), fS(t[0]), py(245), py(239), -0.0105, 0.0105);
+    }
+    /* ramped front sight, post tip on the sight line (y 0.1125) */
+    xe(Psi, 'dark', [[fS(24), 0.0936], [fS(26), 0.1080], [fS(29), 0.1125], [fS(35), 0.1125], [fS(37), 0.1060], [fS(46), 0.0990], [fS(52), 0.0936]], 0.0044, 0, { bevel: 0.0004 });
+    /* four muzzle-brake ports (both sides) + the dark shadow line along the top of the recessed barrel panel */
+    if (!low) {
+      for (const p of [[21, 28], [34, 41], [47, 54], [61, 68]]) for (const sx of [-1, 1]) bx(S, 'dark', fS(p[1]), fS(p[0]), py(169), py(145), ...sd(sx, 0.0155, 0.01578));
+      for (const sx of [-1, 1]) bx(S, 'dgGM', fS(340), fS(90), py(169), py(167.5), ...sd(sx, 0.0145, 0.01459));
+    }
+
+    /* ---- lower frame: gunmetal body with the guard opening, stainless frame plate + front strap, trigger ---- */
+    xe(S, 'dgGM', Q([[279, 229], [350, 221], [537, 221], [545, 216], [556, 216], [576, 221], [588, 226], [592, 230], [592, 235], [589, 238], [548, 238], [537, 240], [520, 253], [512, 271], [513, 293], [542, 359], [548, 380], [552, 411], [550, 426], [531, 439], [516, 440], [516, 448], [425, 448], [403, 443], [402, 436], [404, 435], [403, 432], [411, 412], [411, 405], [396, 327], [393, 319], [384, 310], [372, 305], [354, 307], [297, 306], [294, 300], [296, 293], [296, 273], [293, 264], [285, 249], [279, 245]]),
+      0.019, 0, { bevel: 0.001, holes: [Q([[308, 256], [318, 245], [331, 240], [372, 240], [386, 248], [393, 262], [393, 288], [388, 297], [311, 297], [305, 291], [305, 264]])] });
+    xe(S, 'dgSS', Q([[280, 229], [350, 221], [537, 221], [545, 216], [556, 216], [576, 221], [588, 226], [592, 230], [592, 235], [589, 238], [548, 238], [537, 240], [520, 253], [512, 271], [498, 262], [490, 248], [400, 248], [392, 243], [372, 240], [331, 240], [318, 245], [308, 256], [296, 262], [293, 264], [285, 249], [279, 245]]),
+      0.0276, 0, { bevel: 0.0008 });
+    xe(S, 'dgSS', Q([[388, 243], [402, 244], [433, 424], [414, 426], [411, 405], [396, 327], [393, 319], [392, 300], [392, 262]]), 0.032, 0, { bevel: 0.0008 });         // front strap
+    xe(S, 'poly', Q([[360, 243], [389, 243], [393, 262], [391, 278], [384, 286], [374, 294], [366, 298], [358, 296], [355, 293], [363, 285], [367, 271], [366, 257]]), 0.007, 0, { bevel: 0.0006 });   // trigger
+    if (!low) {
+      for (const sx of [-1, 1]) {
+        S.cyl(0.0034, 0.0034, 0.0008, sx * 0.0142, py(227), px(300, 227) * -1, 'dark', { axis: 'x', seg: 12 });           // take-down pin
+        S.cyl(0.0022, 0.0022, 0.0008, sx * 0.0142, py(246), px(300, 246) * -1, 'dark', { axis: 'x', seg: 10 });
+        bx(S, 'dark', px(452, 230), px(430, 230), py(242), py(222), ...sd(sx, 0.0137, 0.0141));                            // slide-stop pocket
+      }
+      S.cyl(0.0033, 0.0033, 0.0014, -0.0168, py(290), -px(388, 290), 'dark', { axis: 'x', seg: 12 });                      // magazine release button
+      S.cyl(0.0022, 0.0022, 0.0012, 0.0166, py(290), -px(388, 290), 'dark', { axis: 'x', seg: 10 });
+    }
+
+    /* ---- grip: stippled black rubber block + medallion + screws ---- */
+    xe(S, 'dgGrip', Q([[402, 249], [446, 249], [459, 224], [485, 224], [487, 250], [498, 277], [504, 293], [518, 326], [533, 359], [539, 380], [543, 411], [541, 424], [520, 425], [433, 424]]), 0.042, 0, { bevel: 0.0015 });
+    if (!low) {
+      for (const sx of [-1, 1]) S.cyl(0.0025, 0.0025, 0.0008, sx * 0.0212, py(372), -px(525, 372), 'dark', { axis: 'x', seg: 10 });    // grip screw
+      decal('_dgLogo', 0.0185, 0.0185, px(464, 333), py(333), -0.02112); decal('_dgLogo', 0.0185, 0.0185, px(464, 333), py(333), 0.02112);
+    }
+
+    /* ---- engraving: "44 MAG" on the muzzle block, "DESERT EAGLE PISTOL / MADE IN USA" on the barrel panel ---- */
+    if (!low) for (const x of [-1, 1]) {
+      decal('_dgMag', 0.0176, 0.0066, fS(54), py(209), x * 0.01562);
+      decal('_dgName', 0.0580, 0.0108, fS(262), py(205), x * 0.01462);
+    }
+
+    /* ================= slide part (cycles): body, serrations, ejection port, safety, rear sight, hammer ================= */
+    xe(Ps, 'dgSS', Q([[350, 220], [350, 132], [428, 131], [441, 138], [501, 138], [519, 158], [530, 168], [536, 186], [537, 217], [535, 220]]), 0.032, 0, { bevel: 0.0014 });
+    if (!low) {
+      // 15 angled grooves per side (top leans toward the muzzle); the right side stops short of the ejection port
+      for (let i = 0; i < 15; i++) for (const sx of [-1, 1]) {
+        const xt = 361 + i * 11.14, skip = sx > 0 && xt >= 450, y0 = skip ? 188 : 161, xa = xt + (y0 - 161) * 14 / 57, xb = xt + 14;
+        const fa = fS(xa), fb = fS(xb), ya = py(y0), yb = py(218), L = Math.hypot(fa - fb, ya - yb);
+        Ps.box(0.0005, L, 0.001, sx * 0.01605, (ya + yb) / 2, -(fa + fb) / 2, 'dark', { rx: -Math.asin((fa - fb) / L) });
+      }
+      bx(Ps, 'dark', fS(528), fS(470), py(182), py(150), 0.0157, 0.0163);                                                     // ejection port (right)
+    }
+    /* round ambidextrous safety: black teardrop lever, raised thumb pad, stainless pivot ring + screw slot, red / green status dots */
+    const lever = Q([[438, 157], [446, 152], [462, 151], [485, 150], [497, 152], [503, 160], [503, 172], [497, 181], [486, 184], [470, 180], [452, 172], [440, 165]]);
+    xe(Ps, 'poly', lever, 0.0026, -0.0173, { bevel: 0.0005 });
+    if (!low) {
+      xe(Ps, 'dgGM', Q(ell(453, 162, 13, 7, 14)), 0.0016, -0.0194, { bevel: 0.0004 });
+      Ps.cyl(0.0052, 0.0052, 0.0012, -0.0192, py(168), -fS(487), 'dgSSD', { axis: 'x', seg: 14 });
+      Ps.box(0.0004, 0.0078, 0.0012, -0.0199, py(168), -fS(487), 'dark');
+    }
+    if (!low) { Ps.cyl(0.0012, 0.0012, 0.0006, -0.0162, py(183), -fS(460), 'dgRed', { axis: 'x', seg: 8 }); Ps.cyl(0.0012, 0.0012, 0.0006, -0.0162, py(183), -fS(445), 'dgGrn', { axis: 'x', seg: 8 }); }
+    /* rear sight (two posts + notch, notch centred on the sight line y 0.112) */
+    { const yP = 0.0943, yT = 0.1165, yN = 0.1075, f1 = fS(462), f2 = fS(478) + 0.0015, f3 = fS(491), f4 = fS(494), post = [[f1, yP], [f2, yT], [f3, yT], [f4, yP]];
+      for (const sx of [-1, 1]) xe(Pi2, 'dark', post, 0.0048, sx * 0.00565, { bevel: 0.0004 });
+      bx(Pi2, 'dark', f4, f1, yP, yN, -0.0081, 0.0081); }
+    /* black spur hammer behind the slide */
+    xe(Ps, 'poly', Q([[519, 162], [536, 157], [545, 152], [552, 155], [552, 162], [543, 175], [538, 191], [538, 203], [541, 213], [528, 216], [519, 200]]), 0.009, 0, { bevel: 0.0008 });
+
+    /* ================= magazine (pulled down on reload): body inside the grip + stainless base plate ================= */
+    xe(Pm, 'blued', [[-0.030, 0.018], [0.0165, 0.018], [0.0075, -0.125], [-0.040, -0.125]], 0.025, 0, { bevel: 0.0006 });
+    xe(Pm, 'dgSS', Q([[406, 424], [545, 424], [549, 430], [546, 438], [531, 440], [516, 441], [425, 441], [405, 436]]), 0.039, 0, { bevel: 0.0008 });
+    xe(Pm, 'poly', Q([[404, 441], [516, 441], [516, 448], [425, 448], [403, 443]]), 0.033, 0, { bevel: 0.0005 });
+
+    c.root.add(S.build(M)); const sl = part(Ps, M), mag = part(Pm, M); c.root.add(sl, mag);
+    sl.userData.travel = 0.032; mag.userData.pullDir = new THREE.Vector3(0, -1, 0.05).normalize(); mag.userData.pullDist = 0.15; c.parts.slide = sl; c.parts.mag = mag; addPart(c, Psi, M, 'sights'); { const g = Pi2.build(M, { cast: true }); g.name = 'sights2'; sl.add(g); c.parts.sights2 = g; }
+    A(c, 'muzzle', 0, 0.066, 0.208); A(c, 'eject', 0.016, 0.088, -0.02); A(c, 'gripR', 0, 0, 0); A(c, 'trigger', 0, 0.006, 0.055); A(c, 'gripL', -0.03, -0.045, 0.012, 'wrap');
+    A(c, 'ads', 0, 0.112, -0.064); A(c, 'load', 0, -0.13, 0.0); A(c, 'magGrip', 0, -0.13, 0.0);
+    c.size = { length: 0.28, height: 0.2 };
+  }
+  function buildM1911(c) {
+    const M = c.m, S = new U.Builder(), Ps = new U.Builder(), Pm = new U.Builder(), low = c.low, Psi = new U.Builder(), Pi2 = new U.Builder();
+    ex(Ps, 'steel', [[-0.07, 0.09], [0.14, 0.09], [0.146, 0.08], [0.146, 0.052], [-0.07, 0.052]], 0.026, 0, { bevel: 0.002 });
+    bx(Ps, 'steel', 0.14, 0.158, 0.056, 0.082, -0.0095, 0.0095); bar(Ps, 'steel', 0.14, 0.16, 0.07, 0.0115, 0.0115, 10);
+    if (!low) for (let i = 0; i < 5; i++) { bx(Ps, 'blued', -0.066 + i * 0.006, -0.064 + i * 0.006, 0.054, 0.088, -0.0132, 0.0132); bx(Ps, 'blued', 0.105 + i * 0.005, 0.107 + i * 0.005, 0.054, 0.088, -0.0132, 0.0132); }
+    bx(Pi2, 'blued', -0.07, -0.06, 0.09, 0.1, -0.007, 0.007); bx(Pi2, 'blued', 0.12, 0.13, 0.09, 0.099, -0.0025, 0.0025); bx(Ps, 'dark', 0.158, 0.1585, 0.062, 0.078, -0.006, 0.006);
+    ex(S, 'blued', [[-0.062, 0.053], [0.14, 0.053], [0.14, 0.026], [0.09, 0.02], [0.02, 0.022], [-0.062, 0.03]], 0.022);
+    ex(S, 'blued', [[-0.042, 0.032], [0.034, 0.032], [0.024, -0.11], [-0.052, -0.11]], 0.026, 0, { bevel: 0.003 });
+    ex(S, 'woodD', [[-0.04, 0.026], [0.03, 0.026], [0.021, -0.1], [-0.048, -0.1]], 0.034, 0, { bevel: 0.002 });
+    ex(S, 'blued', [[-0.056, 0.054], [-0.082, 0.05], [-0.076, 0.02], [-0.056, 0.03]], 0.012); ex(S, 'blued', [[-0.062, 0.086], [-0.082, 0.095], [-0.086, 0.082], [-0.07, 0.066]], 0.008);
+    ex(S, 'blued', [[0.018, 0.022], [0.085, 0.022], [0.085, -0.002], [0.08, -0.002], [0.08, 0.017], [0.018, 0.017]], 0.007); bx(S, 'blued', 0.03, 0.036, -0.012, 0.02, -0.0025, 0.0025);
+    bx(S, 'steel', 0.008, 0.026, 0.044, 0.05, 0.0105, 0.013); bx(S, 'steel', -0.02, 0.0, 0.05, 0.056, 0.0105, 0.013);
+    ex(Pm, 'blued', [[-0.038, 0.03], [0.03, 0.03], [0.021, -0.108], [-0.049, -0.108]], 0.02); ex(Pm, 'rubber', [[-0.05, -0.1], [0.022, -0.1], [0.022, -0.116], [-0.052, -0.116]], 0.028);
+    c.root.add(S.build(M)); const sl = part(Ps, M), mag = part(Pm, M); c.root.add(sl, mag);
+    sl.userData.travel = 0.045; mag.userData.pullDir = new THREE.Vector3(0, -1, 0.1).normalize(); mag.userData.pullDist = 0.13; c.parts.slide = sl; c.parts.mag = mag; { const g = Pi2.build(M, { cast: true }); g.name = 'sights2'; sl.add(g); c.parts.sights2 = g; }
+    A(c, 'muzzle', 0, 0.07, 0.16); A(c, 'eject', 0.013, 0.082, -0.015); A(c, 'gripR', 0, 0, 0); A(c, 'trigger', 0, 0.004, 0.055); A(c, 'gripL', -0.03, -0.04, 0.01, 'wrap');
+    A(c, 'ads', 0, 0.099, -0.066); A(c, 'load', 0, -0.11, 0.0); A(c, 'magGrip', 0, -0.11, 0.0);
+    c.size = { length: 0.24, height: 0.19 };
+  }
+
+  /* ================= Shotgun =================
+     Remington 870 Tactical: matte-black milled receiver (right-side ejection port cut through the wall, bolt + carrier visible inside and the bolt
+     rides back with the forend), top picatinny rail with a ghost-ring rear sight, trigger plate / loop guard / cross-bolt safety / bolt release,
+     18.5" barrel + full-length magazine extension joined by a barrel band with a sling swivel, ramped bead front sight, ported muzzle brake,
+     ribbed synthetic forend on twin action bars, black synthetic stock (stippled side panels, ribbed recoil pad, sling stud).
+     Coordinates: f = toward the muzzle, y up, x right. Bore axis y = 0.075, magazine tube y = 0.040, sight line y = 0.1085 (ghost ring f = -0.040). */
+  function buildShotgun(c) {
+    const M = c.m, S = new U.Builder(), Pst = new U.Builder(), Pp = new U.Builder(), low = c.low, Psi = new U.Builder(), Pi2 = new U.Builder(), TAU = Math.PI * 2;
+    const yB = 0.075, yM = 0.040, yS = 0.1085, sg = low ? 8 : 18;
+    /* rounded polygon: [f, y, cornerRadius] -> smooth outline */
+    const rp = (pts, n) => {
+      n = n || 4; const out = [], L = pts.length;
+      for (let i = 0; i < L; i++) {
+        const p0 = pts[(i + L - 1) % L], p1 = pts[i], p2 = pts[(i + 1) % L], r = p1[2] || 0;
+        if (!r) { out.push([p1[0], p1[1]]); continue; }
+        const d1 = Math.hypot(p0[0] - p1[0], p0[1] - p1[1]), d2 = Math.hypot(p2[0] - p1[0], p2[1] - p1[1]), k1 = Math.min(r, d1 * 0.5) / d1, k2 = Math.min(r, d2 * 0.5) / d2;
+        const a = [p1[0] + (p0[0] - p1[0]) * k1, p1[1] + (p0[1] - p1[1]) * k1], b = [p1[0] + (p2[0] - p1[0]) * k2, p1[1] + (p2[1] - p1[1]) * k2];
+        for (let j = 0; j <= n; j++) { const t = j / n, u = 1 - t; out.push([u * u * a[0] + 2 * u * t * p1[0] + t * t * b[0], u * u * a[1] + 2 * u * t * p1[1] + t * t * b[1]]); }
+      }
+      return out;
+    };
+    /* side-profile extrusion whose silhouette is exactly the outline (bevel is cut inward) */
+    const xe = (b, k, pts, w, x, o) => {
+      o = o || {}; const bev = o.bevel === undefined ? 0.0015 : o.bevel, sh = new THREE.Shape();
+      pts.forEach((p, i) => (i ? sh.lineTo(p[0], p[1]) : sh.moveTo(p[0], p[1])));
+      if (o.holes) for (const h of o.holes) { const pa = new THREE.Path(); h.forEach((q, i) => (i ? pa.lineTo(q[0], q[1]) : pa.moveTo(q[0], q[1]))); sh.holes.push(pa); }
+      const g = new THREE.ExtrudeGeometry(sh, { depth: Math.max(0.0005, w - bev * 2), bevelEnabled: bev > 0, bevelSize: bev, bevelThickness: bev, bevelOffset: -bev, bevelSegments: 2, curveSegments: 6 });
+      g.translate(0, 0, -(w - bev * 2) / 2); g.applyMatrix4(new THREE.Matrix4().makeRotationY(Math.PI / 2));
+      return b.geo(g, k, new THREE.Matrix4().makeTranslation(x || 0, 0, 0), o.color);
+    };
+    /* elliptical (optionally tapered) cylinder along the barrel axis: rx / ry = half width / half height at the rear end, q = front/rear radius ratio */
+    const ecyl = (b, k, f0, f1, y, x, rx, ry, seg, q) => {
+      const g = new THREE.CylinderGeometry(1, q || 1, 1, seg || 16, 1, false); g.applyMatrix4(new THREE.Matrix4().makeRotationX(Math.PI / 2));
+      return b.geo(g, k, new THREE.Matrix4().compose(new THREE.Vector3(x, y, -(f0 + f1) / 2), new THREE.Quaternion(), new THREE.Vector3(rx, ry, Math.abs(f1 - f0))));
+    };
+    /* ring of boxes around the bore axis (circle in the x/y plane): radial thickness w, depth d along the barrel */
+    const ring = (b, k, f, y, rMid, w, d, n, x) => { for (let i = 0; i < n; i++) { const a = i / n * TAU; b.box(w, 2 * rMid * Math.sin(Math.PI / n) * 1.12, d, (x || 0) + Math.cos(a) * rMid, y + Math.sin(a) * rMid, -f, k, { rz: a }); } };
+    /* loop standing in the f/y plane (sling swivel eye) */
+    const loop = (b, k, fc, yc, r, th, wd, n) => { for (let i = 0; i < n; i++) { const a = i / n * TAU; b.box(wd, th, 2 * r * Math.sin(Math.PI / n) * 1.15, 0, yc + Math.sin(a) * r, -(fc + Math.cos(a) * r), k, { rx: a - Math.PI / 2 }); } };
+
+    /* ---- receiver: two side walls (the right one has the ejection port cut through it), solid roof / floor / front / rear blocks, dark action cavity ---- */
+    const recP = rp([[-0.078, 0.0885, 0.003], [-0.062, 0.092, 0.004], [0.192, 0.092, 0.003], [0.192, 0.0275, 0.002], [0.176, 0.0255, 0], [-0.078, 0.0255, 0]], 4);
+    if (low) xe(S, 'rem', recP, 0.034, 0, { bevel: 0.002 });
+    else {
+      const port = rp([[0.030, 0.051, 0.0075], [0.112, 0.051, 0.0075], [0.112, 0.081, 0.0075], [0.030, 0.081, 0.0075]], 5);
+      xe(S, 'rem', recP, 0.0085, -0.01275, { bevel: 0.0012 });
+      xe(S, 'rem', recP, 0.0085, 0.01275, { bevel: 0.0012, holes: [port] });
+      bx(S, 'rem', -0.062, 0.020, 0.0255, 0.092, -0.0086, 0.0086); bx(S, 'rem', 0.120, 0.192, 0.0255, 0.092, -0.0086, 0.0086);
+      bx(S, 'rem', 0.020, 0.120, 0.0865, 0.092, -0.0086, 0.0086); bx(S, 'rem', 0.020, 0.120, 0.0255, 0.0445, -0.0086, 0.0086);
+      bx(S, 'dark', 0.022, 0.118, 0.0455, 0.0865, -0.0090, -0.0084);                                         // shadowed inner face of the left wall
+      bx(S, 'dark', 0.0192, 0.0201, 0.0455, 0.0865, -0.0086, 0.0086); bx(S, 'dark', 0.1199, 0.1208, 0.0455, 0.0865, -0.0086, 0.0086);   // cavity rear / front faces
+      bx(S, 'dark', 0.020, 0.120, 0.0443, 0.0447, -0.0086, 0.0086);                                          // cavity floor
+      bar(S, 'dark', 0.1195, 0.1209, 0.0735, 0.0068, 0.0068, 12);                                            // chamber mouth in the front face
+      bx(S, 'steel', 0.060, 0.113, 0.0447, 0.0488, -0.0072, 0.0072); bx(S, 'steel', 0.100, 0.114, 0.0488, 0.0555, -0.0066, 0.0066);   // shell carrier / lifter
+    }
+    /* rail + ghost-ring rear sight */
+    if (low) bx(S, 'rem', -0.056, 0.152, 0.092, 0.0975, -0.0105, 0.0105);
+    else {
+      bx(S, 'rem', -0.056, 0.152, 0.0915, 0.0945, -0.0087, 0.0087);
+      for (let f = -0.054; f < 0.148; f += 0.0127) bx(S, 'rem', f, f + 0.0052, 0.0945, 0.0975, -0.0105, 0.0105);
+      bx(Psi, 'rem', -0.050, -0.030, 0.0975, 0.1035, -0.0098, 0.0098);                                          // sight base
+      for (const sx of [-1, 1]) bx(Psi, 'rem', -0.0465, -0.0335, 0.1035, 0.1130, sx * 0.0068, sx * 0.0098);   // protective ears
+      ring(Psi, 'rem', -0.040, yS, 0.0055, 0.0034, 0.0075, 14);                                                // aperture
+      Psi.cyl(0.0028, 0.0028, 0.021, 0, 0.1008, 0.0405, 'steel', { axis: 'x', seg: 8 });                      // windage screw
+    }
+
+    /* ---- trigger plate, loop guard, trigger, safety, bolt release, pins ---- */
+    xe(S, 'rem', rp([[-0.034, 0.028, 0.003], [0.078, 0.028, 0.002], [0.084, 0.012, 0.005], [0.078, 0.0, 0.002], [-0.034, 0.0, 0.003]], 3), 0.027, 0, { bevel: 0.0018 });
+    xe(S, 'rem', rp([[-0.006, 0.003, 0], [0.082, 0.003, 0.003], [0.086, -0.012, 0.008], [0.077, -0.034, 0.012], [0.058, -0.043, 0.012], [0.024, -0.043, 0.012], [0.002, -0.030, 0.012], [-0.008, -0.010, 0.006]], 4), 0.0075, 0,
+      { bevel: 0.0012, holes: [rp([[0.004, -0.004, 0.002], [0.074, -0.004, 0.006], [0.0705, -0.014, 0.006], [0.0645, -0.029, 0.009], [0.052, -0.0355, 0.008], [0.026, -0.0355, 0.008], [0.011, -0.026, 0.007], [0.004, -0.012, 0.004]], 3)] });
+    xe(S, 'steel', rp([[0.0395, 0.004, 0], [0.0447, 0.004, 0], [0.0482, -0.012, 0.002], [0.0462, -0.0255, 0.001], [0.0415, -0.0255, 0.001], [0.0422, -0.012, 0.002]], 2), 0.0044, 0, { bevel: 0.0007 });
+    S.cyl(0.0046, 0.0046, 0.0318, 0, 0.0125, 0.008, 'rem', { axis: 'x', seg: 12 });                          // cross-bolt safety
+    S.cyl(0.0022, 0.0022, 0.0326, 0, 0.0125, 0.008, 'dark', { axis: 'x', seg: 8 });
+    bx(S, 'rem', 0.058, 0.074, 0.005, 0.0235, -0.0160, -0.0128);                                             // bolt release (left)
+    if (!low) {
+      for (let i = 0; i < 4; i++) bx(S, 'dark', 0.061 + i * 0.0036, 0.0626 + i * 0.0036, 0.0075, 0.0215, -0.0163, -0.0158);
+      for (const p of [[-0.025, 0.017], [0.068, 0.0135]]) S.cyl(0.0028, 0.0028, 0.0300, 0, p[1], -p[0], 'steel', { axis: 'x', seg: 10 });   // trigger group pins
+      bx(S, 'dark', 0.092, 0.168, 0.0252, 0.0257, -0.0098, 0.0098);                                        // loading port opening underneath
+    }
+
+    /* ---- barrel, magazine extension, barrel band + sling swivel, front sight, muzzle brake ---- */
+    bar(S, 'remB', 0.19, 0.580, yB, 0.0118, 0.0108, sg); bar(S, 'rem', 0.19, 0.210, yB, 0.0139, 0.0139, sg);
+    bar(S, 'remB', 0.19, 0.568, yM, 0.0124, 0.0124, sg); bar(S, 'rem', 0.19, 0.2015, yM, 0.0140, 0.0140, sg);
+    bar(S, 'blued', 0.4575, 0.4725, yM, 0.0133, 0.0133, sg);                                                  // extension coupling
+    bar(S, 'rem', 0.548, 0.570, yB, 0.0138, 0.0138, sg); bar(S, 'rem', 0.548, 0.570, yM, 0.0148, 0.0148, sg); bx(S, 'rem', 0.548, 0.570, 0.046, 0.0675, -0.0086, 0.0086);
+    bar(S, 'steel', 0.568, 0.5745, yM, 0.0127, 0.0127, sg); bar(S, 'dark', 0.5744, 0.5748, yM, 0.0092, 0.0092, 10);
+    if (!low) {
+      S.cyl(0.0027, 0.0027, 0.0085, 0, 0.0208, -0.559, 'steel', { axis: 'y', seg: 8 }); loop(S, 'steel', 0.559, 0.0128, 0.0055, 0.0016, 0.0030, 10);
+    }
+    xe(Psi, 'rem', rp([[0.552, 0.0830, 0], [0.578, 0.0830, 0], [0.578, 0.0905, 0], [0.571, 0.0925, 0.002], [0.5575, 0.0925, 0.001], [0.552, 0.0885, 0]], 2), 0.0115, 0, { bevel: 0.0008 });   // ramp base
+    xe(Psi, 'rem', [[0.5568, 0.0925], [0.5672, 0.0925], [0.5662, yS - 0.0035], [0.5590, yS - 0.0035]], 0.0034, 0, { bevel: 0.0006 });                                            // blade
+    Psi.sphere(0.0023, 0, yS - 0.0021, -0.5625, 'brass', { seg: 10, seg2: 8 });                                                                                                  // bead
+    bar(S, 'remB', 0.580, 0.625, yB, 0.0128, 0.0128, low ? 10 : 16); bar(S, 'rem', 0.580, 0.5865, yB, 0.0138, 0.0138, low ? 10 : 16); bar(S, 'rem', 0.6185, 0.625, yB, 0.0136, 0.0136, low ? 10 : 16);
+    bar(S, 'dark', 0.6249, 0.6254, yB, 0.0074, 0.0074, 12);
+    if (!low) for (const fb of [0.5895, 0.5995, 0.6095]) for (const off of [0, 0.6, -0.6, 1.2, -1.2]) {
+      const ang = Math.PI / 2 + off; S.box(0.0026, 0.0043, 0.0072, Math.cos(ang) * 0.0128, yB + Math.sin(ang) * 0.0128, -(fb + 0.0036), 'dark', { rz: ang });
+    }
+
+    /* ---- synthetic stock: side profile, wrist swell, stippled panels, ribbed recoil pad, sling stud ---- */
+    const stockP = rp([[-0.078, 0.0875, 0], [-0.115, 0.0925, 0.02], [-0.200, 0.0905, 0.05], [-0.290, 0.0845, 0.05], [-0.346, 0.0795, 0.006], [-0.356, -0.050, 0.006], [-0.330, -0.0525, 0.012],
+      [-0.260, -0.0375, 0.06], [-0.190, -0.0235, 0.05], [-0.150, -0.0205, 0.03], [-0.112, -0.040, 0.03], [-0.092, -0.0665, 0.016], [-0.056, -0.0685, 0.016], [-0.032, -0.052, 0.014], [-0.030, 0.0255, 0.004], [-0.078, 0.0255, 0]], 4);
+    xe(Pst, 'poly', stockP, 0.034, 0, { bevel: 0.0045 });
+    xe(Pst, 'poly', rp([[-0.100, 0.006, 0.02], [-0.030, 0.012, 0.012], [-0.031, -0.052, 0.014], [-0.056, -0.0685, 0.016], [-0.092, -0.0665, 0.016], [-0.108, -0.040, 0.02]], 4), 0.037, 0, { bevel: 0.008 });   // wrist swell
+    if (!low) {
+      const ang = 0.14, ca = Math.cos(ang), sa = Math.sin(ang), oval = [];
+      for (let i = 0; i < 28; i++) { const t = i / 28 * TAU, ex0 = Math.cos(t) * 0.050, ey0 = Math.sin(t) * 0.0255; oval.push([-0.166 + ex0 * ca - ey0 * sa, 0.019 + ex0 * sa + ey0 * ca]); }
+      for (const sx of [-1, 1]) xe(Pst, 'stip', oval, 0.0016, sx * 0.0173, { bevel: 0.0004 });                // stippled grip panels
+      for (const sx of [-1, 1]) for (let i = 0; i < 5; i++) { const f = -0.0745 - i * 0.0046; bx(Pst, 'dark', f - 0.0014, f, -0.060 + i * 0.0003, -0.0165 + i * 0.0003, sx * 0.0176, sx * 0.0198); }   // wrist-strap grooves
+      Pst.cyl(0.0034, 0.0034, 0.0105, 0, -0.0565, 0.3175, 'steel', { axis: 'y', seg: 10 }); Pst.cyl(0.0049, 0.0049, 0.0032, 0, -0.0625, 0.3175, 'steel', { axis: 'y', seg: 10 });   // sling stud
+    }
+    xe(Pst, 'rubber', rp([[-0.346, 0.0805, 0.002], [-0.3615, 0.0812, 0.004], [-0.3720, -0.0650, 0.004], [-0.356, -0.0655, 0.002]], 3), 0.0385, 0, { bevel: 0.002 });              // recoil pad
+    if (!low) for (let i = 0; i < 9; i++) { const t = (i + 0.5) / 9, y = 0.074 - t * 0.132, f = -0.3615 + (-0.3720 + 0.3615) * t; bx(Pst, 'dark', f - 0.0014, f - 0.0004, y - 0.0016, y + 0.0016, -0.0165, 0.0165); }
+
+    /* ---- forend (slides with the action) with the bolt and twin action bars riding inside ---- */
+    ecyl(Pp, 'poly', 0.268, 0.455, 0.0375, 0, 0.0225, 0.0255, low ? 10 : 20);
+    ecyl(Pp, 'poly', 0.455, 0.4625, 0.0375, 0, 0.0205, 0.0235, low ? 10 : 20); ecyl(Pp, 'poly', 0.262, 0.268, 0.0375, 0, 0.0200, 0.0230, low ? 10 : 20);
+    if (!low) for (let i = 0; i < 9; i++) ecyl(Pp, 'rubber', 0.322 + i * 0.0108, 0.322 + i * 0.0108 + 0.0046, 0.0375, 0, 0.0231, 0.0261, 20);
+    for (const x of [-0.0135, 0.0135]) bar(Pp, 'steel', 0.0, 0.266, yM, 0.0033, 0.0033, 8, x);
+    if (!low) {
+      bx(Pp, 'blued', 0.034, 0.112, 0.052, 0.080, -0.0078, 0.0078);                                                // bolt body
+      bx(Pp, 'steel', 0.036, 0.110, 0.0775, 0.0795, -0.0079, 0.0079);                                              // bright top edge of the bolt
+      bx(Pp, 'dark', 0.074, 0.101, 0.0615, 0.0715, 0.0078, 0.0083);                                                // ejection cut in the right face
+      bx(Pp, 'steel', 0.098, 0.1135, 0.0575, 0.0655, 0.0072, 0.0094);                                              // extractor claw
+      bx(Pp, 'steel', 0.040, 0.068, 0.0555, 0.0575, 0.0078, 0.0082);
+    } else bx(Pp, 'blued', 0.034, 0.112, 0.052, 0.080, -0.0078, 0.0078);
+    c.root.add(S.build(M)); addPart(c, Pst, M, 'stock'); addPart(c, Psi, M, 'sights'); const pump = part(Pp, M); c.root.add(pump); pump.userData.travel = 0.072; c.parts.pump = pump;
+    A(c, 'muzzle', 0, yB, 0.625); A(c, 'eject', 0.018, 0.066, 0.072); A(c, 'gripR', 0, 0, 0); A(c, 'trigger', 0, -0.012, 0.043); A(c, 'gripL', 0, 0.0375, 0.36, 'pump');
+    A(c, 'ads', 0, yS, -0.040); A(c, 'load', 0, 0.012, 0.12); A(c, 'magGrip', 0, 0.012, 0.12);
+    c.size = { length: 1.0, height: 0.2 };
+  }
+
+  /* ================= M60 ================= */
+  function buildM60(c) {
+    const M = c.m, S = new U.Builder(), Pst = new U.Builder(), Pl = new U.Builder(), Pm = new U.Builder(), Pc = new U.Builder(), low = c.low, Psi = new U.Builder(), Pi2 = new U.Builder();
+    ex(S, 'park', [[-0.19, 0.14], [0.2, 0.14], [0.2, 0.0], [0.02, -0.02], [-0.04, -0.02], [-0.19, 0.0]], 0.07, 0, { bevel: 0.004 });
+    bx(S, 'blued', 0.0, 0.2, 0.02, 0.1, 0.035, 0.037); bx(S, 'dark', -0.01, 0.05, 0.07, 0.115, 0.0355, 0.0375);
+    bx(Pl, 'park', 0.0, 0.205, 0.14, 0.168, -0.04, 0.04, { }); bx(Pl, 'blued', 0.17, 0.205, 0.14, 0.17, -0.032, 0.032); bx(Pi2, 'blued', 0.03, 0.05, 0.168, 0.2, -0.012, -0.005); bx(Pi2, 'blued', 0.03, 0.05, 0.168, 0.2, 0.005, 0.012); bx(Pi2, 'blued', 0.03, 0.05, 0.168, 0.176, -0.005, 0.005);
+    ex(S, 'poly', [[-0.018, 0.0], [0.03, 0.0], [0.02, -0.125], [-0.038, -0.125]], 0.034, 0, { bevel: 0.004 });
+    ex(S, 'park', [[0.0, -0.02], [0.1, -0.02], [0.1, -0.05], [0.095, -0.05], [0.095, -0.024], [0.0, -0.024]], 0.007); bx(S, 'blued', 0.03, 0.036, -0.045, -0.008, -0.003, 0.003);
+    ex(Pst, 'woodD', [[-0.19, 0.125], [-0.28, 0.125], [-0.37, 0.1], [-0.38, -0.075], [-0.28, -0.085], [-0.19, -0.015]], 0.052, 0, { bevel: 0.006 });
+    ex(Pst, 'rubber', [[-0.37, 0.1], [-0.385, 0.098], [-0.395, -0.075], [-0.38, -0.075]], 0.054);
+    bar(S, 'blued', 0.2, 0.64, 0.105, 0.0155, 0.0145, 10); bar(S, 'park', 0.215, 0.5, 0.105, 0.032, 0.032, 14);
+    if (!low) for (let i = 0; i < 7; i++) for (const x of [-0.0326, 0.0326]) bx(S, 'dark', 0.235 + i * 0.037, 0.255 + i * 0.037, 0.095, 0.112, x - 0.0008, x + 0.0008);
+    bar(S, 'blued', 0.215, 0.48, 0.062, 0.0165, 0.0165, 10); bar(S, 'blued', 0.64, 0.69, 0.105, 0.021, 0.021, 10); if (!low) for (let i = 0; i < 3; i++) bar(S, 'dark', 0.652 + i * 0.012, 0.656 + i * 0.012, 0.105, 0.0215, 0.0215, 10);
+    bx(Psi, 'blued', 0.6, 0.612, 0.115, 0.19, -0.003, 0.003); bx(S, 'blued', 0.595, 0.618, 0.1, 0.12, -0.012, 0.012);
+    bx(S, 'park', 0.3, 0.315, 0.12, 0.18, -0.012, 0.012); bx(S, 'park', 0.45, 0.465, 0.12, 0.18, -0.012, 0.012); bx(S, 'park', 0.3, 0.465, 0.17, 0.182, -0.014, 0.014);
+    bx(S, 'steel', 0.485, 0.52, 0.03, 0.075, -0.018, 0.018); for (const x of [-0.022, 0.022]) { bar(S, 'steel', 0.3, 0.5, 0.045, 0.0045, 0.0045, 5, x); bx(S, 'rubber', 0.3, 0.312, 0.04, 0.05, x - 0.008, x + 0.008); }
+    ex(Pm, 'park', [[0.0, -0.01], [0.13, -0.01], [0.13, -0.105], [0.0, -0.105]], 0.075, -0.0825, { bevel: 0.004 }); bx(Pm, 'steel', 0.04, 0.09, -0.04, -0.03, -0.125, -0.115); bx(Pm, 'blued', 0.0, 0.13, -0.012, -0.004, -0.115, -0.05);
+    for (let i = 0; i < 9; i++) { const t = i / 8, x = -0.08 + t * 0.05, y = -0.01 + t * 0.108, f = 0.09 + t * 0.03; bx(Pm, 'brass', f - 0.0075, f + 0.0075, y, y + 0.012, x - 0.016, x + 0.016); bx(Pm, 'steel', f - 0.004, f + 0.004, y + 0.012, y + 0.017, x - 0.016, x + 0.016); }
+    bx(Pc, 'steel', 0.05, 0.09, 0.06, 0.078, 0.036, 0.062); bx(Pc, 'blued', 0.06, 0.075, 0.06, 0.1, 0.05, 0.062);
+    c.root.add(S.build(M)); addPart(c, Pst, M, 'stock'); addPart(c, Psi, M, 'sights'); const lid = part(Pl, M, [0, 0.14, -0.0]), mag = part(Pm, M), ch = part(Pc, M); c.root.add(lid, mag, ch);
+    lid.userData.openAngle = 1.15; mag.userData.pullDir = new THREE.Vector3(-0.7, -0.7, 0).normalize(); mag.userData.pullDist = 0.3; ch.userData.travel = 0.1;
+    c.parts.lid = lid; c.parts.mag = mag; c.parts.charge = ch; { const g = Pi2.build(M, { cast: true }); g.children.forEach((m) => m.geometry.translate(0, -0.14, 0)); g.name = 'sights2'; lid.add(g); c.parts.sights2 = g; }
+    A(c, 'muzzle', 0, 0.105, 0.69); A(c, 'eject', 0.036, 0.06, 0.08); A(c, 'gripR', 0, 0, 0); A(c, 'trigger', 0, -0.01, 0.045); A(c, 'gripL', 0, 0.035, 0.37, 'under');
+    A(c, 'ads', 0, 0.19, -0.04); A(c, 'load', -0.03, 0.1, 0.1); A(c, 'magGrip', -0.085, -0.055, 0.065);
+    c.size = { length: 1.15, height: 0.25 };
+  }
+
+  /* ================= AX-50 (internal id: awp) ================= */
+  function buildAWP(c) {
+    const M = c.m, S = new U.Builder(), Pst = new U.Builder(), Psc = new U.Builder(), Pb = new U.Builder(), Pm = new U.Builder(), low = c.low, AXY = 0.153; /* AXY = scope axis height */
+    /* ---- lower chassis (rear) + long free-float handguard ---- */
+    ex(S, 'poly', [[-0.13, 0.05], [0.28, 0.05], [0.28, -0.03], [0.215, -0.034], [0.1, -0.012], [0.03, 0.0], [-0.12, 0.0]], 0.046, 0, { bevel: 0.004 });
+    ex(S, 'alu', [[0.27, 0.098], [0.63, 0.098], [0.645, 0.088], [0.645, 0.008], [0.63, -0.002], [0.27, -0.002]], 0.05, 0, { bevel: 0.004 });
+    bx(S, 'alu', 0.3, 0.52, -0.014, -0.002, -0.013, 0.013);                                               /* underside rail / hand-stop */
+    bx(S, 'alu', 0.5, 0.53, -0.03, -0.002, -0.011, 0.011);
+    if (!low) { for (let i = 0; i < 6; i++) for (const x of [-0.0252, 0.0252]) bx(S, 'dark', 0.31 + i * 0.05, 0.345 + i * 0.05, 0.05, 0.058, x - 0.0004, x + 0.0004); /* M-Lok slots */

@@ -1,0 +1,808 @@
+      box(cx - 4.5, 0.4, z - 1.35, cx + 4.5, 3.0, z + 1.35, 'paint', { color: ORG }); vb(cx - 3.9, 3.0, z - 1.0, cx + 3.9, 3.35, z + 1.0, 'paint', 0xc84a18); vb(cx - 4.6, 1.2, z - 1.4, cx + 4.6, 1.5, z + 1.4, 'paint', 0xe6e4dc);
+      for (const x of [-2.6, -0.6, 1.4, 3.0]) vb(cx + x - 0.3, 1.8, wz - 0.03, cx + x + 0.3, 2.5, wz + 0.03, 'glass', 0xffffff);
+      for (const x of [-3, 3]) { vb(cx + x - 0.15, 0, z + side * 2.2 - 0.15, cx + x + 0.15, 4.6, z + side * 2.2 + 0.15, 'steel', 0xe0b020); strut(cx + x, 4.6, z + side * 2.2, cx + x, 3.2, z, 0.12, 'steel', 0xe0b020); }
+    }
+    for (const x of [36, 54]) { lifeboat(x, -31.3, -1); lifeboat(x, 31.3, 1); }
+    crane(63.2, -29.2, 1, -0.7, 0.95, 28); crane(63.2, 29.2, 1, 0.7, 0.95, 28);
+    for (const q of [[28, -24], [28, 24], [46, -24], [46, 24], [64, -14], [64, 14]]) lightPole(q[0], q[1]);
+    box(62.6, 0, -4.6, 64.6, 1.0, -2.4, 'steel', { color: 0xe0b020 }); box(62.6, 0, 2.4, 64.6, 1.0, 4.6, 'steel', { color: 0xe0b020 });        // fire-pump skids on the east walkway
+
+    /* ======================================================== CENTRE-EAST: ACCOMMODATION BLOCK, RADIO HOUSE, BRIDGE, HELIDECK */
+    function disc(cx, cz, r, y, mat, color, seg) { const g = new THREE.CircleGeometry(r, seg || 40); g.rotateX(-Math.PI / 2); g.translate(cx, y, cz); worldUV(g, TS[mat] || 3); bld(cx, cz, y).geo(g, mat, null, color); }
+    const WALLC = 0xe6e5de, INC = 0xd5dcdd, SLABC = 0xd3d5ce, ROOFC = 0x8a9690, CEIL = H1 - 0.4;
+    const lx0 = LQ.x0, lx1 = LQ.x1, lz0 = LQ.z0, lz1 = LQ.z1;
+    box(lx0 - 0.2, CEIL, lz0 - 0.2, lx1 + 0.2, H1, lz1 + 0.2, 'paint', { color: SLABC });          // ceiling of the ground floor = the roof deck
+    plane(lx0 - 0.2, lz0 - 0.2, lx1 + 0.2, lz1 + 0.2, H1, 'deckF', ROOFC);
+    { /* ---- ground floor: exterior walls ---- */
+      const sideOps = [[31, 33, 0, 2.4, 'door'], [41.6, 44.1, 1.0, 2.3, 'win'], [45.9, 48.4, 1.0, 2.3, 'win'], [51.6, 54.1, 1.0, 2.3, 'win'], [56, 58, 0, 2.4, 'door']];
+      wallX(lz0, lx0 - 0.2, lx1 + 0.2, 0, CEIL, 0.4, 'metal', WALLC, sideOps); wallX(lz1, lx0 - 0.2, lx1 + 0.2, 0, CEIL, 0.4, 'metal', WALLC, sideOps);
+      wallZ(lx0, lz0 + 0.2, lz1 - 0.2, 0, CEIL, 0.4, 'metal', WALLC, [[-1.2, 1.2, 0, 2.5, 'door'], [-8.2, -5.4, 1.0, 2.3, 'win'], [5.4, 8.2, 1.0, 2.3, 'win']]);
+      wallZ(lx1, lz0 + 0.2, lz1 - 0.2, 0, CEIL, 0.4, 'metal', WALLC, [[-1.2, 1.2, 0, 2.5, 'door']]);
+      /* interior: a through corridor (z -2.4..2.4) with a door into each of the six rooms; rooms are only joined by the corridor */
+      const dr = [[34.1, 35.9, 0, 2.3, 'door'], [44.1, 45.9, 0, 2.3, 'door'], [54.1, 55.9, 0, 2.3, 'door']];
+      wallX(-2.4, lx0 + 0.2, lx1 - 0.2, 0, CEIL, 0.25, 'paint', INC, dr); wallX(2.4, lx0 + 0.2, lx1 - 0.2, 0, CEIL, 0.25, 'paint', INC, dr);
+      for (const x of [40, 50]) { wallZ(x, lz0 + 0.2, -2.525, 0, CEIL, 0.25, 'paint', INC, []); wallZ(x, 2.525, lz1 - 0.2, 0, CEIL, 0.25, 'paint', INC, []); }
+      plane(lx0 + 0.2, lz0 + 0.2, lx1 - 0.2, -2.4, 0.004, 'tileF', 0xb8c1c0); plane(lx0 + 0.2, 2.4, lx1 - 0.2, lz1 - 0.2, 0.004, 'tileF', 0xb8c1c0); plane(lx0 + 0.2, -2.4, lx1 - 0.2, 2.4, 0.004, 'tileF', 0x93a2a4);
+      for (const x of [33, 38.5, 43, 48.5, 55, 59]) for (const z of [-6.2, 6.2]) vb(x - 0.5, CEIL - 0.07, z - 0.3, x + 0.5, CEIL, z + 0.3, 'lamp', 0xffffff);
+      for (const x of [33.5, 40, 46, 52, 58]) vb(x - 0.6, CEIL - 0.07, -0.25, x + 0.6, CEIL, 0.25, 'lamp', 0xffffff);
+      /* furniture: just enough cover, always leaving a clear aisle from each door */
+      box(37.1, 0, -8.6, 39.5, 0.8, -7.7, 'wood', { color: 0x8a6a48 }); box(37.1, 0, -5.9, 39.5, 0.8, -5.0, 'wood', { color: 0x8a6a48 }); box(30.3, 0, -8.2, 31.1, 1.0, -4.0, 'steel', { color: 0x9aa09a });        // mess: tables + serving counter
+      box(41.2, 0, -9.7, 48.8, 0.95, -9.0, 'steel', { color: 0xb9bdb5 }); box(42.5, 0, -6.8, 47.5, 0.95, -5.7, 'steel', { color: 0xb9bdb5 }); box(49.2, 0, -9.6, 49.8, 2.0, -7.4, 'steel', { color: 0xd8dad4 });   // galley: counter, island, fridge
+      box(51.0, 0, -9.6, 54.2, 0.8, -8.6, 'cloth', { color: 0x3e5a6a }); box(54.6, 0, -7.0, 57.4, 0.9, -5.6, 'cloth', { color: 0x2e6a4a }); box(58.8, 0, -9.6, 59.6, 1.8, -7.0, 'wood', { color: 0x6f5238 });       // rec room: sofa, pool table, bookcase
+      box(31.0, 0, 3.6, 33.2, 0.78, 4.5, 'wood', { color: 0x9a7b55 }); box(35.2, 0, 7.4, 37.4, 0.78, 8.3, 'wood', { color: 0x9a7b55 }); box(30.4, 0, 8.6, 31.4, 2.0, 9.6, 'steel', { color: 0x7d8388 });        // office: desks + cabinet
+      box(41.0, 0, 4.4, 43.2, 2.2, 5.0, 'steel', { color: 0x8d9296 }); box(46.8, 0, 4.4, 49.0, 2.2, 5.0, 'steel', { color: 0x8d9296 }); box(42.2, 0, 7.4, 49.0, 2.2, 8.0, 'steel', { color: 0x8d9296 }); box(44.4, 0, 9.0, 46.2, 1.2, 9.7, 'wood', { color: 0x8a6a48 });   // stores: shelving rows (an open aisle from the door)
+      box(51.2, 0, 8.4, 58.4, 1.05, 9.5, 'steel', { color: 0x4b5257 }); vb(51.4, 1.05, 9.0, 58.2, 1.9, 9.45, 'glass', 0xffffff); box(55.6, 0, 4.6, 57.2, 0.7, 6.0, 'cloth', { color: 0x3a3f44 });                    // control room console + chair
+      for (const x of [32.5, 52.5]) vcyl(x, 1.1, -2.25, 0.09, 0.09, 0.3, 'y', 'paint', 0xc23a2e, 8);
+    }
+    { /* ---- roof deck (3.4 m): outside stairs on both long sides, parapet rails, HVAC, funnel ---- */
+      const SC = 0x6f7a76, rx0 = lx0 - 0.2, rx1 = lx1 + 0.2, rz0 = lz0 - 0.2, rz1 = lz1 + 0.2;
+      for (const s of [-1, 1]) {
+        stairs(33.5, s * 11.4, '+x', 2.4, NSTEP, 0, SC); box(38.6, 0, s < 0 ? -12.6 : 10.2, 41.0, H1, s < 0 ? -10.2 : 12.6, 'deck', { color: SC });           // flight + landing, up from the open deck
+        const zo = s * 12.6; rail(38.6, zo, 41.0, zo, H1); rail(41.0, s * 10.2, 41.0, zo, H1);
+        rail(rx0, s * rz1 * (s < 0 ? -1 : 1) * 0 + (s < 0 ? rz0 : rz1), 38.6, (s < 0 ? rz0 : rz1), H1); rail(41.0, (s < 0 ? rz0 : rz1), rx1, (s < 0 ? rz0 : rz1), H1);
+      }
+      rail(rx0, rz0, rx0, rz1, H1); rail(rx1, rz0, rx1, rz1, H1);
+      box(32.5, H1, -8.6, 36, H1 + 1.5, -7.0, 'metal', { color: 0xc9ccc4 }); box(32.5, H1, 7.0, 36, H1 + 1.5, 8.6, 'metal', { color: 0xc9ccc4 });
+      vcyl(34.25, H1 + 1.53, -7.8, 0.6, 0.6, 0.05, 'y', 'steel', 0x30353a, 12); vcyl(34.25, H1 + 1.53, 7.8, 0.6, 0.6, 0.05, 'y', 'steel', 0x30353a, 12);
+      cylC(38.6, 0, 1.3, H1, H1 + 5.2, 'paint', { color: 0xb23a2e, seg: 18 }); vcyl(38.6, H1 + 4.75, 0, 1.33, 1.33, 0.9, 'y', 'paint', 0x1c1d1e, 18); vcyl(38.6, H1 + 5.3, 0, 1.0, 1.0, 0.2, 'y', 'steel', 0x30353a, 18);
+      cylC(58.6, -8.4, 0.5, H1, H1 + 1.2, 'steel', { color: 0xd2d6d0, seg: 10 }); cylC(58.6, -7.2, 0.5, H1, H1 + 1.2, 'steel', { color: 0xd2d6d0, seg: 10 }); cylC(58.6, 8.4, 0.5, H1, H1 + 1.2, 'steel', { color: 0xd2d6d0, seg: 10 }); cylC(58.6, 7.2, 0.5, H1, H1 + 1.2, 'steel', { color: 0xd2d6d0, seg: 10 });
+      box(40.4, H1, -3.4, 42.6, H1 + 0.9, -1.6, 'steel', { color: 0x6f7479 }); box(40.4, H1, 1.6, 42.6, H1 + 1.1, 3.4, 'steel', { color: 0x6f7479 });
+      vb(33.2, H1, -0.1, 33.4, H1 + 7, 0.1, 'steel', 0x9aa0a4); strut(33.3, H1 + 7, 0, 30.4, H1, -2.4, 0.04, 'steel', 0x30353a); strut(33.3, H1 + 7, 0, 36.2, H1, 2.4, 0.04, 'steel', 0x30353a);
+      decal('sgnMuster', lx0 - 0.22, 1.8, 4, '-x', 1.2, 1.2); decal('sgnHeli', lx1 + 0.22, 2.2, -5, '+x', 2.2, 1.1); decal('sgnHat', lx0 - 0.22, 1.8, -4, '-x', 1.0, 1.0); decal('sgnDanger', 47.2, 1.6, lz0 - 0.22, '-z', 1.6, 0.8);
+    }
+    { /* ---- radio house on the roof deck: x 46..56, z -4.5..4.5, its roof at 6.8 m ---- */
+      const rx0 = 46, rx1 = 56, rz = 4.5, hy = H1, ht = H2 - 0.4;
+      wallX(-rz, rx0, rx1, hy, ht, 0.4, 'metal', WALLC, [[47.4, 50.6, hy + 1.0, hy + 2.3, 'win'], [51.4, 54.6, hy + 1.0, hy + 2.3, 'win']]);
+      wallX(rz, rx0, rx1, hy, ht, 0.4, 'metal', WALLC, [[47.4, 50.6, hy + 1.0, hy + 2.3, 'win'], [51.4, 54.6, hy + 1.0, hy + 2.3, 'win']]);
+      wallZ(rx0, -rz, rz, hy, ht, 0.4, 'metal', WALLC, [[-1.1, 1.1, hy, hy + 2.4, 'door'], [-3.8, -2.0, hy + 1.0, hy + 2.3, 'win'], [2.0, 3.8, hy + 1.0, hy + 2.3, 'win']]);
+      wallZ(rx1, -rz, rz, hy, ht, 0.4, 'metal', WALLC, [[-3.8, -1.6, hy + 1.0, hy + 2.3, 'win'], [1.6, 3.8, hy + 1.0, hy + 2.3, 'win']]);
+      box(rx0 - 0.2, ht, -rz - 0.2, rx1 + 0.2, H2, rz + 0.2, 'paint', { color: SLABC }); plane(rx0 - 0.2, -rz - 0.2, rx1 + 0.2, rz + 0.2, H2, 'deckF', ROOFC); plane(rx0 + 0.2, -rz + 0.2, rx1 - 0.2, rz - 0.2, hy + 0.004, 'tileF', 0x93a2a4);
+      box(48.6, hy, -3.8, 53.4, hy + 1.0, -2.6, 'steel', { color: 0x4b5257 }); vb(48.8, hy + 1.0, -3.4, 53.2, hy + 1.8, -2.7, 'glass', 0xffffff); box(48.6, hy, 2.6, 53.4, hy + 1.0, 3.8, 'steel', { color: 0x4b5257 }); box(50.2, hy, -0.6, 51.8, hy + 0.7, 0.6, 'cloth', { color: 0x3a3f44 }); box(54.6, hy, -3.8, 55.6, hy + 2.0, -2.4, 'steel', { color: 0x7d8388 });
+      for (const x of [48.5, 52, 55]) vb(x - 0.5, ht - 0.07, -0.3, x + 0.5, ht, 0.3, 'lamp', 0xffffff);
+      /* stairs up from the roof deck on both sides, landing against the roof edge */
+      for (const s of [-1, 1]) {
+        stairs(42.5, s * 5.9, '+x', 2.4, NSTEP, H1, 0x6f7a76, H1); box(47.6, H1, s < 0 ? -7.1 : 4.7, 50.0, H2, s < 0 ? -4.7 : 7.1, 'deck', { color: 0x6f7a76 });
+        const zo = s * 7.1, ze = s * (rz + 0.2); rail(47.6, zo, 50.0, zo, H2); rail(50.0, zo, 50.0, ze, H2); rail(rx0 - 0.2, ze, 47.6, ze, H2); rail(50.0, ze, rx1 + 0.2, ze, H2);
+      }
+      rail(rx0 - 0.2, -rz - 0.2, rx0 - 0.2, rz + 0.2, H2); rail(rx1 + 0.2, -rz - 0.2, rx1 + 0.2, -1.8, H2); rail(rx1 + 0.2, 1.8, rx1 + 0.2, rz + 0.2, H2);
+      box(50.6, H2, -0.5, 51.4, H2 + 1.0, 0.5, 'steel', { color: 0x4b5257 }); box(53.6, H2, -3.6, 55.2, H2 + 1.2, -2.2, 'steel', { color: 0x6f7479 }); box(47.2, H2, 2.4, 48.8, H2 + 1.1, 4.0, 'steel', { color: 0x6f7479 });   // roof gear (cover)
+      vb(50.95, H2 + 1.0, -0.05, 51.05, H2 + 5.6, 0.05, 'steel', 0x9aa0a4); vb(50.4, H2 + 3.0, -0.05, 51.6, H2 + 3.15, 0.05, 'steel', 0x9aa0a4); vb(50.85, H2 + 5.6, -0.15, 51.15, H2 + 5.9, 0.15, 'lampR', 0xffffff);
+      decal('sgnName', rx0 - 0.22, H1 + 1.6, -2.9, '-x', 2.6, 0.65);
+    }
+    { /* ---- bridge to the helideck (6.8 m) and the two long stairs up to it from the east strip ---- */
+      box(56.2, H2 - 0.4, -1.8, 65, H2, 1.8, 'deck', { color: FLOORC }); rail(56.2, -1.8, 62.0, -1.8, H2); rail(56.2, 1.8, 62.0, 1.8, H2);
+      vb(56.2, H2 - 1.4, -1.8, 65, H2 - 0.4, -1.6, 'steel', 0x5a6065); vb(56.2, H2 - 1.4, 1.6, 65, H2 - 0.4, 1.8, 'steel', 0x5a6065); strut(60.5, 3.2, 0, 60.5, H2 - 0.4, 0, 0.0001, 'steel', 0x5a6065);
+      stairs(63.2, -12, '+z', 2.4, 2 * NSTEP, 0, 0x6f7a76); stairs(63.2, 12, '-z', 2.4, 2 * NSTEP, 0, 0x6f7a76);
+    }
+    const HX = HELI.x, HZ = HELI.z, HR = HELI.r;
+    { /* ---- the helideck ---- */
+      cylC(HX, HZ, HR, H2 - 0.4, H2, 'deck', { vis: false }); vcyl(HX, H2 - 0.2, HZ, HR, HR, 0.4, 'y', 'paint', 0x2f4f3a, 48); vcyl(HX, H2 - 0.9, HZ, HR - 0.6, HR - 0.6, 1.0, 'y', 'paint', 0x4b5257, 48);
+      disc(HX, HZ, HR, H2, 'deckF', 0x3f7a55, 48); decal('hpad', HX, H2 + 0.012, HZ, 'up', HR * 1.98, HR * 1.98);
+      railCircle(HX, HZ, HR - 0.45, H2, YEL, [[Math.PI, 2.5]]);
+      for (let i = 0; i < 24; i++) { const a = i / 24 * 6.2832; vb(HX + Math.cos(a) * (HR - 0.15) - 0.12, H2, HZ + Math.sin(a) * (HR - 0.15) - 0.12, HX + Math.cos(a) * (HR - 0.15) + 0.12, H2 + 0.12, HZ + Math.sin(a) * (HR - 0.15) + 0.12, 'lamp', 0xffffff); }
+      /* the helicopter parked on the pad: solid fuselage (cover), rotor + tail boom visual */
+      const hx = HX - 1, hz = HZ - 0.4;
+      box(hx - 4.6, H2 + 0.55, hz - 1.25, hx + 2.2, H2 + 2.6, hz + 1.25, 'paint', { color: 0xdedbd0 }); box(hx - 5.5, H2 + 0.8, hz - 0.95, hx - 4.6, H2 + 2.2, hz + 0.95, 'paint', { color: 0xdedbd0 });
+      vb(hx - 5.35, H2 + 1.45, hz - 0.9, hx - 4.5, H2 + 2.3, hz + 0.9, 'glass', 0xffffff); vb(hx - 4.5, H2 + 1.0, hz - 1.27, hx + 2.2, H2 + 1.25, hz + 1.27, 'paint', 0xb23a2e);
+      vb(hx + 2.2, H2 + 1.6, hz - 0.28, hx + 8.8, H2 + 2.3, hz + 0.28, 'paint', 0xdedbd0); vb(hx + 8.3, H2 + 1.6, hz - 0.08, hx + 8.9, H2 + 3.9, hz + 0.08, 'paint', 0xb23a2e); vb(hx + 8.0, H2 + 3.0, hz - 0.6, hx + 9.1, H2 + 3.1, hz + 0.6, 'paint', 0xdedbd0);
+      vb(hx - 0.2, H2 + 2.6, hz - 0.2, hx + 0.2, H2 + 3.4, hz + 0.2, 'steel', 0x30353a); for (const a of [0.4, 1.97]) { const c = Math.cos(a), s2 = Math.sin(a); strut(hx - c * 6, H2 + 3.45, hz - s2 * 6, hx + c * 6, H2 + 3.45, hz + s2 * 6, 0.22, 'steel', 0x23262a, 0.05); }
+      for (const z of [-1.0, 1.0]) { vb(hx - 3.8, H2 + 0.1, hz + z - 0.06, hx + 1.4, H2 + 0.22, hz + z + 0.06, 'steel', 0x30353a); vb(hx - 2.8, H2 + 0.2, hz + z - 0.05, hx - 2.7, H2 + 0.7, hz + z + 0.05, 'steel', 0x30353a); vb(hx + 0.4, H2 + 0.2, hz + z - 0.05, hx + 0.5, H2 + 0.7, hz + z + 0.05, 'steel', 0x30353a); }
+      /* pad furniture */
+      box(HX + 6.2, H2, HZ + 8.2, HX + 9.8, H2 + 1.2, HZ + 10.4, 'steel', { color: 0xd8ae2a }); cylC(HX + 5.0, HZ + 11.2, 0.7, H2, H2 + 1.6, 'steel', { color: 0xb23a2e, seg: 12 });
+      box(HX - 9.4, H2, HZ - 10.4, HX - 6.8, H2 + 1.5, HZ - 9.2, 'metal', { color: 0xc23a2e }); box(HX + 7.8, H2, HZ - 9.6, HX + 10.6, H2 + 1.3, HZ - 8.0, 'metal', { color: 0xc9ccc4 }); cylC(HX - 1.6, HZ + 13.0, 0.5, H2, H2 + 1.2, 'steel', { color: 0xd2d6d0, seg: 10 });
+      vb(HX + HR - 2.1, H2, HZ + 2, HX + HR - 1.9, H2 + 5, HZ + 2.2, 'steel', 0x9aa0a4); vcyl(HX + HR - 2.8, H2 + 4.6, HZ + 2.1, 0.5, 0.2, 1.8, 'x', 'paint', 0xe4571e, 8);                 // windsock
+      /* trusswork under the pad, back to the hull, and two stout legs on the east strip */
+      cylC(66.4, -7.5, 0.7, 0, H2 - 0.4, 'steel', { color: 0xd9d6cc, seg: 12 }); cylC(66.4, 7.5, 0.7, 0, H2 - 0.4, 'steel', { color: 0xd9d6cc, seg: 12 });
+      for (const z of [-12, -6, 0, 6, 12]) { strut(X1 + 0.1, -7.5, z * 0.7, HX - 8, H2 - 1.0, z, 0.5, 'steel', 0xc9c8c0); strut(X1 + 0.1, -2, z * 0.7, HX + 6, H2 - 1.0, z * 1.1, 0.35, 'steel', 0xc9c8c0); }
+      vb(X1 - 0.2, -1.2, -13, X1 + 0.6, -0.1, 13, 'steel', 0x8d9296);
+    }
+
+    /* ======================================================== PERIMETER: railings + invisible barriers on every open edge */
+    rail(X0, -ZD, X1, -ZD, 0); rail(X0, ZD, X1, ZD, 0); rail(X1, -ZD, X1, ZD, 0); rail(X0, -ZD, X0, -WZ, 0); rail(X0, WZ, X0, ZD, 0);
+    rail(WX0, -WZ, X0, -WZ, 0); rail(WX0, WZ, X0, WZ, 0); rail(WX0, -WZ, WX0, WZ, 0);
+
+    /* ======================================================== ASSEMBLE */
+    for (const k of Object.keys(chunks)) {
+      const g = chunks[k].build(M, { cast: true, receive: true });
+      g.traverse((m) => { if (m.isMesh) { if (/^(glass|lamp|lampR|hpad|hazard)$|^sgn|^cid|F$/.test(m.name)) m.castShadow = false; m.matrixAutoUpdate = false; } });
+      group.add(g);
+    }
+    { const g = farB.build(M, { cast: false, receive: false }); g.traverse((m) => { if (m.isMesh) m.matrixAutoUpdate = false; }); group.add(g); }
+    const flameTex = U.texture(cvs(64, 128, (x, w, h) => { const g = x.createRadialGradient(32, 100, 3, 32, 86, 62); g.addColorStop(0, 'rgba(255,250,215,1)'); g.addColorStop(0.3, 'rgba(255,176,56,0.9)'); g.addColorStop(0.65, 'rgba(232,76,22,0.4)'); g.addColorStop(1, 'rgba(200,40,10,0)'); x.fillStyle = g; x.fillRect(0, 0, w, h); }), { clamp: true });
+    const flameMat = new THREE.MeshBasicMaterial({ map: flameTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false });
+    const flames = [];
+    for (let i = 0; i < 2; i++) { const m = new THREE.Mesh(new THREE.PlaneGeometry(i ? 3.4 : 5.2, i ? 8 : 11.5), flameMat); m.position.set(FLARE.x, FLARE.y + (i ? 4.4 : 5.9), FLARE.z); m.renderOrder = 6; m.frustumCulled = false; group.add(m); flames.push(m); }
+    const radar = new THREE.Mesh(new THREE.BoxGeometry(4.4, 0.16, 0.55), new THREE.MeshStandardMaterial({ color: 0xaab0b4, roughness: 0.5, metalness: 0.5 })); radar.position.set(51, H2 + 5.75, 0); radar.castShadow = true; group.add(radar);
+    scene.add(group);
+
+    /* ======================================================== LIGHT, FOG, SHADOW FOCUS */
+    const envScene = new THREE.Scene(); envScene.add(new THREE.Mesh(new THREE.SphereGeometry(50, 24, 16), new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide })));
+    const pm = new THREE.PMREMGenerator(renderer); const envTex = pm.fromScene(envScene, 0.0, 0.1, 100).texture; pm.dispose();
+    scene.environment = envTex; if ('environmentIntensity' in scene) scene.environmentIntensity = 0.7;
+    scene.fog = new THREE.FogExp2(FOG, 0.0032);
+    const sun = new THREE.DirectionalLight(0xfff1d8, 3.3); sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048); const sc = sun.shadow.camera; sc.left = -46; sc.right = 46; sc.top = 46; sc.bottom = -46; sc.near = 1; sc.far = 300;
+    sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.05; scene.add(sun); scene.add(sun.target);
+    const hemi = new THREE.HemisphereLight(0xb8d6f2, 0x4a6f8c, 1.15); scene.add(hemi); group.add(new THREE.AmbientLight(0xffffff, 0.22));
+    const lightRight = new THREE.Vector3().crossVectors(sunDir, new THREE.Vector3(0, 1, 0)).normalize(), lightUp = new THREE.Vector3().crossVectors(lightRight, sunDir).normalize(), tmp = new THREE.Vector3();
+    function focusShadow(x, y, z) {                  // the shadow window (92 m) follows the camera, snapped to shadow texels so edges never shimmer
+      const texel = 92 / sun.shadow.mapSize.x;
+      const a = Math.round((x * lightRight.x + y * lightRight.y + z * lightRight.z) / texel) * texel, b = Math.round((x * lightUp.x + y * lightUp.y + z * lightUp.z) / texel) * texel, c = x * sunDir.x + y * sunDir.y + z * sunDir.z;
+      tmp.set(0, 0, 0).addScaledVector(lightRight, a).addScaledVector(lightUp, b).addScaledVector(sunDir, c);
+      sun.target.position.copy(tmp); sun.position.copy(tmp).addScaledVector(sunDir, 120); sun.target.updateMatrixWorld();
+    }
+    focusShadow(0, 0, 0);
+    let tAcc = 0;
+    function update(dt, camPos) {
+      tAcc += dt; dome.position.copy(camPos);
+      sea.position.x = Math.round(camPos.x / 64) * 64; sea.position.z = Math.round(camPos.z / 64) * 64;      // the sea follows the camera in whole texture tiles, so it never seems to move
+      seaNorm.offset.x = (tAcc * 0.010) % 1; seaNorm.offset.y = (tAcc * 0.006) % 1; seaAlb.offset.x = (tAcc * -0.0016) % 1; seaAlb.offset.y = (tAcc * 0.0009) % 1;
+      for (let i = 0; i < flames.length; i++) { const m = flames[i], f = 1 + 0.16 * Math.sin(tAcc * 13 + i * 2.1) + 0.1 * Math.sin(tAcc * 23 + i); m.scale.set(1 + 0.08 * Math.sin(tAcc * 17 + i), f, 1); m.rotation.y = Math.atan2(camPos.x - m.position.x, camPos.z - m.position.z); }
+      radar.rotation.y = tAcc * 1.4; foamMat.opacity = 0.82 + 0.1 * Math.sin(tAcc * 0.9); for (let i = 0; i < foams.length; i++) { const s = 1 + 0.035 * Math.sin(tAcc * 0.7 + i * 1.3); foams[i].scale.set(s, s, 1); }
+    }
+
+    /* ======================================================== WORLD, SPAWN POOL, PICKUPS, HINTS */
+    const groundMat = () => 'metal';
+    const world = World.create(cols, BOUNDS, groundMat);
+    { /* World keeps an implicit floor at y = 0 everywhere; past the rails that floor is only the sea far below, so rays that would land there pass on to the water */
+      const rc0 = world.raycast, onDeck = (x, z) => (x >= X0 - 0.6 && x <= X1 + 0.6 && Math.abs(z) <= ZD + 0.6) || (x >= WX0 - 0.6 && x <= X0 + 0.6 && Math.abs(z) <= WZ + 0.6);
+      world.raycast = function (ox, oy, oz, dx, dy, dz, maxT) { if (!rc0.call(this, ox, oy, oz, dx, dy, dz, maxT)) return false; const h = this.hit; return !(h.c === null && !onDeck(h.x, h.z)); };
+    }
+    let inMain = () => true;     // only points the bots' navigation grid can reach are valid spawns / pickups / hints
+    try {
+      const nav = Nav.create(world), mc = nav.mainComp(), ML = nav.N / (nav.w * nav.h), CSZ = Nav.CS;
+      if (mc >= 0) inMain = (x, y, z) => {
+        const cx = Math.floor((x - nav.x0) / CSZ), cz = Math.floor((z - nav.z0) / CSZ); if (cx < 0 || cz < 0 || cx >= nav.w || cz >= nav.h) return false;
+        const b = (cz * nav.w + cx) * ML; for (let l = 0; l < ML; l++) { const yy = nav.y[b + l]; if (!isNaN(yy) && Math.abs(yy - y) < 0.12 && nav.comp[b + l] === mc) return true; } return false;
+      };
+    } catch (e) { }
+    const faceCenter = (x, z) => Math.atan2(x - 8, z);
+    const pool = [];
+    for (let z = -32; z <= 32; z += 3) for (let x = -112; x <= 66; x += 3) {
+      if (!world.canStand(x, 0, z, 0.8, 1.9, 0.3) || !inMain(x, 0, z)) continue;
+      if (Math.abs(world.surfaceY(x, z, 0.3)) > 0.05) continue;
+      let best = faceCenter(x, z), bd = -1;
+      for (let k = 0; k < 16; k++) { const a = k * Math.PI / 8, dx = -Math.sin(a), dz = -Math.cos(a); const d = world.raycast(x, 1.3, z, dx, 0, dz, 24) ? world.hit.t : 24; const bias = Math.cos(a - faceCenter(x, z)) * 1.5; if (d + bias > bd) { bd = d + bias; best = a; } }
+      pool.push({ x: x, y: 0, z: z, yaw: best });
+    }
+    const spawns = [pool, pool];
+    function nudge(x, z, lvl) { for (let r = 0; r < 5; r += 0.5) for (let k = 0; k < 8; k++) { const px = x + Math.cos(k * 0.785) * r, pz = z + Math.sin(k * 0.785) * r; if (world.canStand(px, lvl, pz, 0.5, 1.9, 0.3) && Math.abs(world.surfaceY(px, pz, lvl + 0.3) - lvl) < 0.06 && inMain(px, lvl, pz)) return [px, pz]; } return null; }
+    const PK = [
+      ['awp', HX + 5, HZ + 4, H2], ['m60', DX + 5.5, 4.4, H1], ['shotgun', 45, -7.6, 0], ['mp5', -36, 4.6, 0], ['ak', 4, 2.6, 0], ['m4', 36, 0, H1], ['deagle', 51.6, 0, H1], ['m1911', -108, 14.2, 0],
+      ['ammo', -70, -16, 0], ['ammo', -70, 16, 0], ['ammo', -104, 0, 0], ['ammo', -90, -14, 0], ['ammo', -50, 0, 0], ['ammo', -20, -11, 0], ['ammo', -20, 22, 0], ['ammo', 4, -14, 0], ['ammo', 12, 14, 0], ['ammo', 24, -20, 0], ['ammo', 24, 0, 0], ['ammo', 36, -7, 0],
+      ['ammo', 56, 6.2, 0], ['ammo', 66, 0, 0], ['ammo', 38, 8, H1], ['ammo', 52, -7.6, H1], ['ammo', HX - 7, HZ + 3, H2], ['ammo', -78, 0, H1], ['ammo', 0, 30, 0], ['ammo', 0, -31, 0]];
+    const pickups = [];
+    for (const p of PK) { const n = nudge(p[1], p[2], p[3]); if (n) pickups.push({ id: p[0], x: n[0], z: n[1], y: world.surfaceY(n[0], n[1], p[3] + 0.5), yaw: 0 }); }
+    const hints = { free: true, lanes: [], sniperSpots: [], holdSpots: [], cqbSpots: [] };
+    const addHint = (list, x, y, z) => { const n = nudge(x, z, y); if (n) list.push({ x: n[0], y: y, z: n[1] }); };
+    for (const q of [[HX - 4, HZ - 9, H2], [HX - 4, HZ + 9, H2], [HX + 9, HZ, H2], [52, -3.4, H2], [52, 3.4, H2], [DX + 8, -7.6, H1], [DX + 8, 7.6, H1], [PX0 + 6, 0, H1], [32, -8.6, H1], [32, 8.6, H1], [44, 0, H1], [-52, 0, 0], [62, 0, 0], [-100, 0, 0]]) { const n = nudge(q[0], q[1], q[2]); if (n) hints.sniperSpots.push({ x: n[0], y: q[2], z: n[1], yaw: faceCenter(n[0], n[1]) }); }
+    for (const q of [[-72, -12], [-72, 12], [-90, -8], [-90, 8], [-52, -12], [-52, 12], [-34, -13], [-34, 13], [-22, 0], [-14, -16], [-14, 16], [0, -9], [0, 9], [8, 0], [16, -12], [16, 12], [26, -14], [26, 14], [38, -15], [38, 15], [56, -15], [56, 15], [62, -3], [62, 3], [66, -20], [66, 20], [-48, -26], [-48, 26], [-6, 0], [-80, 0], [-104, -10], [-104, 10], [-110, 0], [-96, 0]]) addHint(hints.holdSpots, q[0], 0, q[1]);
+    for (const q of [[35, -6], [45, -6], [55, -6], [35, 6], [45, 6], [55, 6], [38, 0], [50, 0], [58, 0], [-41, 0], [-33, 0], [-36, -5], [-36, 5], [-76, 4], [-76, -4], [-80, 0], [-70, 0], [-105, 4.6], [-105, -4.6]]) addHint(hints.cqbSpots, q[0], 0, q[1]);
+    for (const q of [[DX + 3, 6, H1], [DX - 5, -5, H1], [34, -6, H1], [34, 6, H1], [41, 0, H1], [58, 0, H1], [50, 0, H1], [HX + 2, HZ - 7, H2], [HX - 8, HZ + 6, H2]]) addHint(hints.cqbSpots, q[0], q[2], q[1]);
+    world.groundMat = groundMat;
+
+    return {
+      name: 'OIL RIG', id: 'oilrig', free: true, group: group, colliders: cols, bounds: BOUNDS, spawns: spawns, pickups: pickups, hints: hints, groundMat: groundMat, world: world,
+      sun: sun, sunDir: sunDir, hemi: hemi, dome: dome, focusShadow: focusShadow, menu: { r: 118, h: 36, look: [8, 8, 0], speed: 0.03 },
+      env: { texture: envTex, sunDir: sunDir, sunColor: sun.color.clone(), sunIntensity: sun.intensity, hemiSky: hemi.color.clone(), hemiGround: hemi.groundColor.clone(), hemiIntensity: hemi.intensity, envIntensity: 0.7 },
+      update: update
+    };
+  }
+  return { build: build, BOUNDS: BOUNDS };
+})();
+
+/* ===== 40_weapons.js ===== */
+/* ============================================================================
+   40_weapons.js — weapon configuration + shared weapon STATE logic (player and bots use the same rules).
+   Units: metres, seconds, degrees (spread/recoil). ws = weapon state { id,cfg,mag,reserve,cool,reload,cycle,bloom,shotIdx,idle }.
+   ============================================================================ */
+const Weapons = (function () {
+  'use strict';
+  const lerp = (a, b, t) => a + (b - a) * t;
+
+  /* seeded recoil pattern: [[vertical°, horizontal°], ...] — kicks start strong, settle, and wander left/right */
+  function pattern(seed, n, v0, v1, hAmp, hBias) {
+    const r = U.rng(seed), out = []; let dir = r() < 0.5 ? -1 : 1;
+    for (let i = 0; i < n; i++) {
+      const k = Math.min(1, (i / Math.max(1, n - 1)) * 1.6), v = lerp(v0, v1, k) * (0.85 + r() * 0.3);
+      if (i % 4 === 3 && r() < 0.65) dir = -dir;
+      out.push([v, hBias + dir * hAmp * (0.35 + 0.65 * r())]);
+    }
+    return out;
+  }
+  const RLD = {
+    rifle: { tac: [[0.16, 'magout'], [0.78, 'magin']], empty: [[0.16, 'magout'], [0.78, 'magin'], [0.915, 'boltback'], [0.965, 'boltfwd']], fill: 0.79 },
+    pistol: { tac: [[0.14, 'magout'], [0.74, 'magin']], empty: [[0.14, 'magout'], [0.74, 'magin'], [0.86, 'boltback'], [0.9, 'boltfwd']], fill: 0.75 },
+    lmg: { tac: [[0.2, 'beltopen'], [0.34, 'magout'], [0.82, 'magin'], [0.94, 'beltclose']], fill: 0.83 },
+    sniper: { tac: [[0.18, 'magout'], [0.78, 'magin']], fill: 0.79 },
+    shotgun: { tac: [], fill: 1 },
+    m4Sleight: { tac: [[0.41, 'magout'], [0.73, 'magin']], empty: [[0.42, 'magout'], [0.73, 'magin'], [0.84, 'boltfwd']], fill: 0.74 }   /* Sleight of Hand tactical swap (WeaponAnim.m4SleightKeys) */
+  };
+
+  const CFG = {
+    ak: {
+      id: 'ak', name: 'AK-47', cls: 'ASSAULT RIFLE', slot: 'primary', kind: 'rifle', mode: 'AUTO', auto: true, rpm: 600, mag: 30, reserve: 120,
+      dmg: [36, 25], range: [22, 56], head: 2.0, limb: 0.9, pellets: 1,
+      spread: { hip: 1.7, ads: 0.1, move: 1.3, air: 3.0, shot: 0.3, max: 2.6, recover: 9 },
+      recoil: pattern(11, 30, 1.25, 0.82, 0.5, 0.05), recoilAds: 0.72, recoilDelay: 0.14, kickZ: 0.05, kickRot: 0.055,
+      reload: { tac: 2.4, empty: 3.0, rld: RLD.rifle }, draw: 0.5, adsTime: 0.28, zoom: 1.35, moveMul: 0.95, adsMoveMul: 0.62,
+      ai: { range: [10, 46], burst: [3, 7], pause: [0.12, 0.4], accuracy: 1.0 },
+      stats: { damage: 72, fireRate: 62, accuracy: 56, range: 62, handling: 52 }, desc: 'Hard-hitting full-auto rifle. Strong vertical recoil rewards control.'
+    },
+    m4: {
+      id: 'm4', name: 'M4A1', cls: 'ASSAULT RIFLE', slot: 'primary', kind: 'rifle', mode: 'AUTO', auto: true, rpm: 720, mag: 30, reserve: 120,
+      dmg: [30, 22], range: [26, 62], head: 2.0, limb: 0.9, pellets: 1,
+      spread: { hip: 1.5, ads: 0.08, move: 1.1, air: 2.8, shot: 0.24, max: 2.2, recover: 10 },
+      recoil: pattern(22, 30, 0.95, 0.66, 0.32, 0.02), recoilAds: 0.7, recoilDelay: 0.14, kickZ: 0.04, kickRot: 0.045,
+      reload: { tac: 2.1, empty: 2.7, rld: RLD.rifle, rldS: RLD.m4Sleight }, draw: 0.45, adsTime: 0.24, zoom: 1.4, moveMul: 1.0, adsMoveMul: 0.66,
+      ai: { range: [10, 50], burst: [3, 8], pause: [0.1, 0.35], accuracy: 1.05 },
+      stats: { damage: 58, fireRate: 72, accuracy: 76, range: 68, handling: 66 }, desc: 'Accurate, fast-handling all-rounder with a high rate of fire.'
+    },
+    mp5: {
+      id: 'mp5', name: 'MP5', cls: 'SMG', slot: 'primary', kind: 'rifle', mode: 'AUTO', auto: true, rpm: 850, mag: 30, reserve: 150,
+      dmg: [24, 15], range: [10, 32], head: 2.0, limb: 0.95, pellets: 1,
+      spread: { hip: 1.3, ads: 0.1, move: 0.8, air: 2.2, shot: 0.18, max: 2.0, recover: 11 },
+      recoil: pattern(33, 30, 0.7, 0.5, 0.32, 0), recoilAds: 0.7, recoilDelay: 0.12, kickZ: 0.03, kickRot: 0.035,
+      reload: { tac: 1.9, empty: 2.4, rld: RLD.rifle }, draw: 0.38, adsTime: 0.18, zoom: 1.3, moveMul: 1.08, adsMoveMul: 0.78,
+      ai: { range: [4, 26], burst: [4, 10], pause: [0.1, 0.3], accuracy: 0.95 },
+      stats: { damage: 42, fireRate: 88, accuracy: 72, range: 38, handling: 90 }, desc: 'Blistering fire rate and mobility. Falls off past mid range.'
+    },
+    shotgun: {
+      id: 'shotgun', name: 'R870 PUMP', cls: 'SHOTGUN', slot: 'primary', kind: 'shotgun', mode: 'PUMP', auto: false, rpm: 85, cycle: 0.68, mag: 6, reserve: 30,
+      dmg: [13, 6], range: [9, 34], head: 1.5, limb: 0.9, pellets: 10,
+      spread: { hip: 2.4, ads: 1.5, move: 0.8, air: 1.5, shot: 0, max: 0, recover: 10 },
+      recoil: [[5.2, 0.6]], recoilAds: 0.8, recoilDelay: 0.3, kickZ: 0.12, kickRot: 0.14,
+      reload: { tac: 3.2, empty: 3.2, rld: RLD.shotgun }, draw: 0.5, adsTime: 0.26, zoom: 1.2, moveMul: 1.0, adsMoveMul: 0.7,
+      ai: { range: [2, 20], burst: [1, 1], pause: [0.0, 0.2], accuracy: 1.0 },
+      stats: { damage: 95, fireRate: 22, accuracy: 52, range: 42, handling: 56 }, desc: 'Pump-action. Devastating up close — one shot, one kill.'
+    },
+    m60: {
+      id: 'm60', name: 'M60', cls: 'LMG', slot: 'primary', kind: 'lmg', mode: 'AUTO', auto: true, rpm: 580, mag: 100, reserve: 200,
+      dmg: [32, 26], range: [28, 66], head: 2.0, limb: 0.9, pellets: 1,
+      spread: { hip: 2.7, ads: 0.2, move: 2.4, air: 3.5, shot: 0.2, max: 3.0, recover: 7 },
+      recoil: pattern(55, 40, 0.95, 0.85, 0.6, 0), recoilAds: 0.72, recoilDelay: 0.18, kickZ: 0.06, kickRot: 0.05,
+      reload: { tac: 5.2, empty: 5.8, rld: RLD.lmg }, draw: 0.8, adsTime: 0.42, zoom: 1.3, moveMul: 0.84, adsMoveMul: 0.5,
+      ai: { range: [14, 56], burst: [8, 18], pause: [0.2, 0.5], accuracy: 0.85 },
+      stats: { damage: 64, fireRate: 66, accuracy: 42, range: 72, handling: 20 }, desc: 'Belt-fed LMG. 100 rounds of sustained fire — slow to move.'
+    },
+    awp: {
+      id: 'awp', name: 'AX-50', cls: 'SNIPER RIFLE', slot: 'primary', kind: 'sniper', mode: 'BOLT', auto: false, rpm: 48, cycle: 1.25, mag: 5, reserve: 25, scope: true,
+      dmg: [100, 100], range: [0, 300], head: 1.5, limb: 0.7, pellets: 1,
+      spread: { hip: 7.0, ads: 0.02, move: 3.6, air: 6.0, shot: 0, max: 0, recover: 12 },
+      recoil: [[3.4, 0.4]], recoilAds: 0.8, recoilDelay: 0.3, kickZ: 0.1, kickRot: 0.1,
+      reload: { tac: 3.0, empty: 3.0, rld: RLD.sniper }, draw: 0.7, adsTime: 0.45, zoom: 3.6, moveMul: 0.9, adsMoveMul: 0.55,
+      ai: { range: [28, 130], burst: [1, 1], pause: [0.4, 1.0], accuracy: 1.3 },
+      stats: { damage: 100, fireRate: 8, accuracy: 96, range: 100, handling: 24 }, desc: 'Bolt-action .50 cal anti-materiel sniper rifle. One-shot kill to head or torso.'
+    },
+    deagle: {
+      id: 'deagle', name: 'DESERT EAGLE', cls: 'PISTOL', slot: 'secondary', kind: 'pistol', mode: 'SEMI', auto: false, rpm: 280, mag: 7, reserve: 35,
+      dmg: [58, 44], range: [16, 46], head: 2.0, limb: 0.9, pellets: 1,
+      spread: { hip: 1.5, ads: 0.1, move: 1.0, air: 2.4, shot: 0.6, max: 2.4, recover: 8 },
+      recoil: [[2.5, 0.5]], recoilAds: 0.75, recoilDelay: 0.2, kickZ: 0.08, kickRot: 0.1,
+      reload: { tac: 1.9, empty: 2.5, rld: RLD.pistol }, draw: 0.35, adsTime: 0.17, zoom: 1.2, moveMul: 1.02, adsMoveMul: 0.85,
+      ai: { range: [2, 24], burst: [1, 1], pause: [0.18, 0.4], accuracy: 1.0 },
+      stats: { damage: 82, fireRate: 28, accuracy: 70, range: 52, handling: 72 }, desc: 'Hand cannon. Two body shots drop most targets.'
+    },
+    m1911: {
+      id: 'm1911', name: 'M1911', cls: 'PISTOL', slot: 'secondary', kind: 'pistol', mode: 'SEMI', auto: false, rpm: 430, mag: 8, reserve: 56,
+      dmg: [30, 21], range: [12, 34], head: 2.0, limb: 0.95, pellets: 1,
+      spread: { hip: 1.2, ads: 0.08, move: 0.7, air: 2.0, shot: 0.4, max: 2.0, recover: 9 },
+      recoil: [[1.35, 0.35]], recoilAds: 0.75, recoilDelay: 0.2, kickZ: 0.05, kickRot: 0.065,
+      reload: { tac: 1.6, empty: 2.1, rld: RLD.pistol }, draw: 0.3, adsTime: 0.14, zoom: 1.2, moveMul: 1.05, adsMoveMul: 0.9,
+      ai: { range: [2, 20], burst: [1, 2], pause: [0.12, 0.3], accuracy: 1.0 },
+      stats: { damage: 44, fireRate: 46, accuracy: 76, range: 40, handling: 92 }, desc: 'Reliable, quick-handling sidearm.'
+    },
+    knife: {
+      id: 'knife', name: 'COMBAT KNIFE', short: 'KNIFE', cls: 'MELEE', slot: 'melee', kind: 'melee', mode: 'MELEE', auto: false, rpm: 120, mag: 1, reserve: 0,
+      dmg: [50, 50], range: [0, 2], head: 2.0, limb: 0.85, pellets: 1,
+      melee: { reach: 1.85, swing: 0.46, hit: 0.3, backstab: 999 },   /* reach in metres from the eye, swing / hit time in seconds; a stab in the back kills outright */
+      spread: { hip: 0, ads: 0, move: 0, air: 0, shot: 0, max: 0, recover: 10 },
+      recoil: [[0, 0]], recoilAds: 1, recoilDelay: 0.3, kickZ: 0, kickRot: 0,
+      reload: { tac: 0, empty: 0, rld: RLD.pistol }, draw: 0.28, adsTime: 0.2, zoom: 1.0, moveMul: 1.12, adsMoveMul: 1.12,
+      ai: { range: [0, 2], burst: [1, 1], pause: [0.3, 0.6], accuracy: 1.0 },
+      stats: { damage: 70, fireRate: 58, accuracy: 100, range: 6, handling: 98 }, desc: 'Silent and fast. Two body hits, a headshot or a stab in the back will kill. Press 3 to draw it.'
+    }
+  };
+  const IDS = ['ak', 'm4', 'mp5', 'shotgun', 'm60', 'awp', 'deagle', 'm1911', 'knife'];
+  for (const id of IDS) { const c = CFG[id]; c.interval = c.cycle ? c.cycle : 60 / c.rpm; c.magMax = c.mag; c.reserveMax = c.reserve; }
+
+  function uiList() { return IDS.map((id) => ({ id, name: CFG[id].name, cls: CFG[id].cls, slot: CFG[id].slot, stats: CFG[id].stats, desc: CFG[id].desc })); }
+
+  /* ---------------------------------------------------------------- weapon state */
+  function newState(id, o) {
+    o = o || {}; const cfg = o.cfg || CFG[id];
+    return { id, cfg, att: cfg.att || null, mag: o.mag !== undefined ? o.mag : cfg.mag, reserve: o.reserve !== undefined ? o.reserve : cfg.reserve, cool: 0, reload: null, cycle: null, bloom: 0, shotIdx: 0, idle: 9, shots: 0 };
+  }
+  function dmgAt(cfg, d) { const r = cfg.range, m = cfg.dmg; if (d <= r[0]) return m[0]; if (d >= r[1]) return m[1]; return m[0] + (m[1] - m[0]) * (d - r[0]) / (r[1] - r[0]); }
+
+  function canFire(ws) {
+    if (!ws || ws.cool > 0 || ws.cycle) return false;
+    if (ws.reload && !(ws.cfg.kind === 'shotgun' && ws.mag > 0)) return false;
+    return ws.mag > 0;
+  }
+  /* returns true when a round was fired. A shotgun reload in progress is interrupted. */
+  function fire(ws) {
+    if (!canFire(ws)) return false;
+    if (ws.reload) ws.reload = null;
+    ws.mag--; ws.cool = ws.cfg.interval; ws.shots++; ws.idle = 0;
+    ws.bloom = Math.min(ws.cfg.spread.max, ws.bloom + ws.cfg.spread.shot);
+    if (ws.cfg.cycle) ws.cycle = { t: 0, dur: ws.cfg.cycle, kind: ws.cfg.kind === 'sniper' ? 'bolt' : 'pump', e1: false, e2: false };
+    return true;
+  }
+  /* recoil kick for the NEXT shot (degrees) — pattern index advances; returns shared object */
+  const _k = { v: 0, h: 0 };
+  function recoilKick(ws, ads) {
+    const c = ws.cfg, p = c.recoil, i = Math.min(ws.shotIdx, p.length - 1), r = U.rng ? 0 : 0;
+    const j = 0.88 + Math.random() * 0.24, m = lerp(1, c.recoilAds, ads || 0);
+    _k.v = p[i][0] * m * j; _k.h = p[i][1] * m * (0.8 + Math.random() * 0.4); ws.shotIdx++; return _k;
+  }
+  function spreadDeg(ws, ctx) {
+    const s = ws.cfg.spread, ads = ctx.ads || 0;
+    if (ctx.player && ws.cfg.id === 'awp') {
+      /* AX-50 (player): hip-fire keeps the stock (inaccurate) values, but once scoped in the movement / air / stance penalties fade out completely - jumping, diving, sliding, sprinting out of it, all pinpoint */
+      const k = 1 - Math.min(1, Math.max(0, (ads - 0.5) / 0.35)), w = lerp(s.hip, s.ads, ads) * 0.3 + ((ctx.move || 0) * s.move * 0.1 + (ctx.air ? s.air * 0.5 : 0)) * k;
+      return ctx.crouch ? w * (0.8 + 0.2 * (1 - k)) : w;
+    }
+    if (ctx.player) {
+      /* player-only accuracy boost: tight hip-fire, near-zero movement penalty, small bloom (bots keep the stock values).
+         Shotgun pellet pattern is left alone apart from a lighter movement/air penalty. */
+      const sg = ws.cfg.kind === 'shotgun', base = sg ? 1 : 0.3, mv = sg ? 0.5 : 0.1, bl = sg ? 0 : 0.2, air = sg ? 0.6 : 0.5;
+      let w = lerp(s.hip, s.ads, ads) * base + (ctx.move || 0) * s.move * mv * (1 - 0.35 * ads) + (ctx.air ? s.air * air : 0) + ws.bloom * bl * (1 - 0.5 * ads);
+      if (ctx.crouch) w *= 0.8; return w;
+    }
+    let v = lerp(s.hip, s.ads, ads) + (ctx.move || 0) * s.move * (1 - 0.35 * ads) + (ctx.air ? s.air : 0) + ws.bloom * (1 - 0.5 * ads);
+    if (ctx.crouch) v *= 0.8; return v;
+  }
+  function startReload(ws) {
+    const c = ws.cfg; if (ws.reload || ws.mag >= c.magMax || ws.reserve <= 0) return false;
+    const empty = ws.mag === 0; let dur, shells = 0;
+    if (c.kind === 'shotgun') { shells = Math.min(c.magMax - ws.mag, ws.reserve); dur = (0.22 + 0.4 + 0.5 * shells) * (c.reload.k || 1); } else dur = empty ? c.reload.empty : c.reload.tac;
+    ws.reload = { t: 0, dur, empty, filled: false, shells, added: 0, ev: 0, k: c.reload.k || 1 }; ws.cycle = null; return true;
+  }
+  function cancelReload(ws) { if (ws) { ws.reload = null; if (ws.akL) ws.akL.reload = null; } }
+  /* advance timers. onEv(name) is called for sound cues: magout/magin/boltback/boltfwd/pumpback/pumpfwd/shellin/beltopen/beltclose */
+  function update(ws, dt, onEv) {
+    if (!ws) return;
+    if (ws.akL) update(ws.akL, dt, onEv);   /* Akimbo: the left gun's timers / reload run alongside */
+    if (ws.cool > 0) ws.cool -= dt;
+    ws.idle += dt; if (ws.bloom > 0) ws.bloom = Math.max(0, ws.bloom - ws.cfg.spread.recover * dt);
+    if (ws.idle > 0.38) ws.shotIdx = 0;
+    const cy = ws.cycle;
+    if (cy && !ws.airHold) { /* airHold: no bolt pull / pump while airborne, the cycle starts on landing */
+      cy.t += dt; const f = cy.t / cy.dur;
+      const c1 = cy.kind === 'bolt' ? 0.3 : 0.33, c2 = cy.kind === 'bolt' ? 0.72 : 0.82;   /* pump: rack-back sound as the pump nears the rear of its travel, clack as it slams home at the end of the stroke (matches WeaponAnim.pumpCycle) */
+      if (!cy.e1 && f > c1) { cy.e1 = true; onEv && onEv(cy.kind === 'bolt' ? 'boltback' : 'pumpback'); }
+      if (!cy.e2 && f > c2) { cy.e2 = true; onEv && onEv(cy.kind === 'bolt' ? 'boltfwd' : 'pumpfwd'); }
+      if (f >= 1) ws.cycle = null;
+    }
+    const r = ws.reload;
+    if (r) {
+      const prev = r.t; r.t += dt; const c = ws.cfg;
+      if (c.kind === 'shotgun') {
+        // shell k is inserted at 0.22 + k*0.5 + 0.45
+        const kk = r.k || 1;
+        while (r.added < r.shells && r.t >= (0.22 + r.added * 0.5 + 0.45) * kk) { r.added++; if (ws.reserve > 0 && ws.mag < c.magMax) { ws.mag++; ws.reserve--; } onEv && onEv('shellin'); }
+        const te = (0.22 + r.shells * 0.5) * kk;
+        if (prev < te + 0.235 * kk && r.t >= te + 0.235 * kk) onEv && onEv('pumpback'); if (prev < te + 0.285 * kk && r.t >= te + 0.285 * kk) onEv && onEv('pumpfwd');   /* end-of-reload rack: back stroke peaks at te+0.31, forward stroke lands at te+0.40 */
+      } else {
+        const L = r.empty && c.reload.rld.empty ? c.reload.rld.empty : c.reload.rld.tac, f0 = prev / r.dur, f1 = r.t / r.dur;
+        for (let i = 0; i < L.length; i++) if (f0 < L[i][0] && f1 >= L[i][0]) onEv && onEv(L[i][1]);
+        if (!r.filled && f1 >= c.reload.rld.fill) { r.filled = true; const n = Math.min(c.magMax - ws.mag, ws.reserve); ws.mag += n; ws.reserve -= n; }
+      }
+      if (r.t >= r.dur) ws.reload = null;
+    }
+  }
+  function addAmmo(ws, n) { const c = ws.cfg, cap = c.reserveMax; const before = ws.reserve; ws.reserve = Math.min(cap, ws.reserve + n); return ws.reserve - before; }
+
+  return { CFG, IDS, uiList, newState, dmgAt, canFire, fire, recoilKick, spreadDeg, startReload, cancelReload, update, addAmmo };
+})();
+
+/* ===== 41_gunsmith.js ===== */
+/* ============================================================================
+   41_gunsmith.js — Gunsmith core: attachment catalog (pure data), weapon compatibility, the stat engine and persistence.
+   Every attachment is a row of DATA (mods = % change in a stat's QUALITY: + is always better, - always worse; x = special effects).
+   buildCfg() turns a weapon's base config + its equipped attachments into an EFFECTIVE config that is a drop-in replacement for
+   Weapons.CFG[id]: weapon state (ws.cfg) carries it, so recoil, spread, ADS, reload, movement, damage falloff, ballistics and
+   noise all run on the modified numbers through the existing code paths - there is no per-attachment code anywhere else.
+   ============================================================================ */
+const WeaponCosmetics=(function(){const K='omniWeaponCosmetics_v1',C=[{id:'olive',name:'Field Olive',desc:'Standard issue finish',color:0x667052,unlock:'Available'},{id:'arctic',name:'Arctic Glass',desc:'Ice-blue panels',color:0x8dbac5,unlock:'5 weapon kills'},{id:'ember',name:'Emberline',desc:'Burnt red finish',color:0xc84d32,unlock:'15 weapon kills'},{id:'circuit',name:'Circuit Breaker',desc:'Electric teal',color:0x16c9b2,unlock:'5 headshots'},{id:'gold',name:'Gilded',desc:'Mastery finish',color:0xd6ae45,unlock:'50 weapon kills'}],B=[{id:'prismatic_drake',name:'Prismatic Drake',weapon:'ak',color:0xd7eee7,glow:0x2ae7df}];let S={currency:0,weapons:{}},PREVIEW={};function load(){try{let x=JSON.parse(localStorage.getItem(K)||'null');if(x)S=Object.assign(S,x);if(!S.weapons)S.weapons={};}catch(e){}}function save(){try{localStorage.setItem(K,JSON.stringify(S))}catch(e){}}function r(w){load();return S.weapons[w]||(S.weapons[w]={kills:0,heads:0,owned:['olive'],blueprints:[],selected:'olive'})}function owned(w){let x=r(w),a=new Set(x.owned||['olive']);C.forEach(c=>{if(c.id==='arctic'&&x.kills>=5||c.id==='ember'&&x.kills>=15||c.id==='circuit'&&x.heads>=5||c.id==='gold'&&x.kills>=50)a.add(c.id)});x.owned=[...a];return x.owned}function recordKill(w,h){if(!w)return;let x=r(w);x.kills++;if(h)x.heads++;S.currency=(S.currency||0)+10;owned(w);save()}function dragonModel(root){let g=root.getObjectByName('bp_prismatic_drake');if(g)return g;g=new THREE.Group();g.name='bp_prismatic_drake';root.add(g);const pearl=new THREE.MeshStandardMaterial({color:0xe9f6ef,metalness:.72,roughness:.24,envMapIntensity:1.5}),ice=new THREE.MeshStandardMaterial({color:0x8fd3dc,metalness:.66,roughness:.22,envMapIntensity:1.45}),pink=new THREE.MeshStandardMaterial({color:0xe866c8,metalness:.58,roughness:.23,emissive:0x671343,emissiveIntensity:.55}),gold=new THREE.MeshStandardMaterial({color:0xe6c778,metalness:.92,roughness:.2}),dark=new THREE.MeshStandardMaterial({color:0x10171b,metalness:.3,roughness:.4}),eye=new THREE.MeshStandardMaterial({color:0x5afff0,metalness:.35,roughness:.12,emissive:0x14dbff,emissiveIntensity:2.2}),teal=new THREE.MeshStandardMaterial({color:0x3abeb8,metalness:.72,roughness:.25});const add=(name,geo,mat,x,y,z,sx=1,sy=1,sz=1,rz=0)=>{const o=new THREE.Mesh(geo,mat);o.name=name;o.position.set(x,y,z);o.scale.set(sx,sy,sz);o.rotation.z=rz;o.castShadow=true;o.receiveShadow=true;g.add(o);return o};const ell=(name,mat,x,y,z,sx,sy,sz,rz=0)=>add(name,new THREE.SphereGeometry(1,28,20),mat,x,y,z,sx,sy,sz,rz);const plate=(name,mat,x,y,z,sx,sy,sz,rz=0)=>add(name,new THREE.IcosahedronGeometry(1,1),mat,x,y,z,sx,sy,sz,rz);const cone=(name,mat,x,y,z,rad,len,rz=0,rx=0)=>{const o=add(name,new THREE.ConeGeometry(rad,len,12),mat,x,y,z);o.rotation.set(rx,0,rz);return o};
+// Sculpted dragon head: brow, cheek plates, split jaw, open mouth, and a reinforced muzzle ring.
+ell('skull crown',pearl,0,.109,-.439,.047,.047,.087);ell('temple plate',ice,0,.132,-.451,.043,.018,.063);ell('upper snout',pearl,0,.084,-.512,.035,.027,.071);ell('lower jaw',pink,0,.047,-.519,.032,.013,.065);ell('mouth cavity',dark,0,.068,-.565,.027,.019,.012);ell('nose bridge',ice,0,.104,-.533,.025,.018,.044);
+const maw=add('armored dragon muzzle',new THREE.TorusGeometry(.031,.009,12,32),gold,0,.078,-.569);maw.rotation.x=0;ell('nose gem',pink,0,.079,-.578,.014,.014,.009);
+for(const side of [-1,1]){ // curled horns made from a swept tube instead of blunt cones
+ const curve=new THREE.CatmullRomCurve3([new THREE.Vector3(side*.029,.143,-.438),new THREE.Vector3(side*.04,.17,-.428),new THREE.Vector3(side*.047,.197,-.446),new THREE.Vector3(side*.04,.211,-.468)]);add('curled dragon horn',new THREE.TubeGeometry(curve,18,.008,10,false),gold,0,0,0);
+ plate('brow armor',pink,side*.032,.139,-.476,.021,.012,.026,side*.18);ell('eye socket',dark,side*.047,.119,-.482,.011,.012,.018);ell('glowing eye',eye,side*.054,.12,-.486,.006,.007,.01);plate('cheek scale',ice,side*.045,.084,-.452,.019,.026,.041,side*.2);plate('jaw guard',pearl,side*.035,.054,-.5,.012,.016,.044,side*.28);cone('ivory fang',pearl,side*.021,.066,-.546,.006,.026,side*.48,.28);
+ // Five overlapping, faceted scales on each side replace the flat wood handguard surface.
+ for(let i=0;i<5;i++){const z=-(.19+i*.041),y=.091+(i%2)*.014;plate('layered dragon scale',i%2?ice:pearl,side*.031,y,z,.019,.021,.026,side*.22);plate('scale jewel',i%2?pink:gold,side*.045,y+.001,z-.003,.004,.009,.012,side*.2);}}
+for(let i=0;i<7;i++){const z=-(.19+i*.036);cone('segmented dorsal spine',i%2?ice:pearl,0,.145,z,.012,.034,0,.08);ell('spine inlay',pink,0,.161,z-.002,.004,.006,.013)}
+// Replace the AK's wood furniture with pearl composite shells and mechanical detail.
+for(const side of [-1,1]){plate('stock side armor',ice,side*.022,.035,.245,.012,.051,.073,side*.08);plate('stock rear armor',pearl,side*.021,.024,.306,.012,.038,.033);plate('stock hinge',gold,side*.025,.051,.183,.006,.018,.02);}
+add('reinforced butt plate',new THREE.BoxGeometry(.051,.126,.012),gold,0,.023,.341);
+for(let i=0;i<9;i++){const y=.004-i*.013;add('grip traction rib',new THREE.BoxGeometry(.038,.003,.034),i%2?teal:dark,0,y,.004);}
+for(const side of [-1,1])plate('grip dragon badge',pink,side*.018,-.055,.006,.003,.027,.021);
+for(const side of [-1,1])for(let i=0;i<4;i++){const z=-(.2+i*.045);plate('handguard armor rail',i%2?teal:ice,side*.033,.048,z,.008,.012,.032,side*.1);}
+return g}function apply(root,w){if(!root||typeof THREE==='undefined')return;let x=r(w),choice=PREVIEW[w]||x.selected,bp=B.find(c=>c.id===choice),co=C.find(c=>c.id===choice),dragon=choice==='prismatic_drake'&&w==='ak',ornament=root.getObjectByName('bp_prismatic_drake');if(dragon)ornament=dragonModel(root);if(ornament)ornament.visible=!!dragon;root.traverse(o=>{if(!o.isMesh||!o.material)return;if((bp||co)&&!o.userData.ooCosmeticMat){o.material=Array.isArray(o.material)?o.material.map(m=>m.clone()):o.material.clone();o.userData.ooCosmeticMat=true}if(!o.userData.ooCosmeticMat)return;(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>{if(!m.userData.ooOrig)m.userData.ooOrig={color:m.color?m.color.getHex():null,emissive:m.emissive?m.emissive.getHex():null,roughness:m.roughness,map:m.map,metalness:m.metalness};let b=m.userData.ooOrig;if(b.color!==null&&m.color)m.color.setHex(b.color);if(b.emissive!==null&&m.emissive)m.emissive.setHex(b.emissive);if(b.roughness!==undefined)m.roughness=b.roughness;if(b.map!==undefined)m.map=b.map;if(b.metalness!==undefined)m.metalness=b.metalness;if(dragon&&w==='ak'&&m.map===WeaponModels.mats().wood.map){m.map=null;m.color.setHex(0xdceee8);m.metalness=.72;m.roughness=.28;}if((bp||co)&&m.color)m.color.lerp(new THREE.Color(bp?bp.color:co.color),bp?.36:.46);if(m.emissive){m.emissive.setHex(bp?bp.glow:0);m.emissiveIntensity=bp?.42:0}if(bp)m.roughness=.22;m.needsUpdate=true})})}function preview(w,id){PREVIEW[w]=id||null}function select(w,id){PREVIEW[w]=null;let x=r(w);if(id==='stock')x.selected='stock';else if(owned(w).includes(id)||(x.blueprints||[]).includes(id))x.selected=id;save()}function roll(w){PREVIEW[w]=null;let x=r(w),pool=B.filter(b=>(!b.weapon||b.weapon===w)&&!(x.blueprints||[]).includes(b.id));if((S.currency||0)<250)return{ok:false,reason:'Need 250 credits'};if(!pool.length)return{ok:false,reason:'All blueprints collected'};S.currency-=250;let b=pool[Math.random()*pool.length|0];x.blueprints=(x.blueprints||[]).concat(b.id);x.selected=b.id;save();return{ok:true,item:b}}function data(w){let x=r(w);return{currency:S.currency||0,kills:x.kills,heads:x.heads,owned:owned(w),blueprints:x.blueprints||[],selected:x.selected||'stock',preview:PREVIEW[w]||null,camos:C,blueprintList:B}}return{recordKill,apply,select,preview,roll,data}})();
+const Gunsmith = (function () {
+  'use strict';
+  const MAX = 5, KEY = 'omniGunsmith_v1';
+  const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+
+  /* ---------------------------------------------------------------- categories */
+  const CATS = [
+    { id: 'optic', name: 'OPTIC', s: 'OPT' }, { id: 'muzzle', name: 'MUZZLE', s: 'MZL' }, { id: 'barrel', name: 'BARREL', s: 'BRL' },
+    { id: 'under', name: 'UNDERBARREL', s: 'UND' }, { id: 'mag', name: 'MAGAZINE', s: 'MAG' }, { id: 'grip', name: 'REAR GRIP', s: 'GRP' },
+    { id: 'stock', name: 'STOCK', s: 'STK' }, { id: 'tac', name: 'TACTICAL', s: 'TAC' }, { id: 'fire', name: 'FIRE MODS', s: 'AMO' }, { id: 'perk', name: 'PERK', s: 'PRK' }
+  ];
+  const CAT = {}; CATS.forEach((c) => { CAT[c.id] = c; });
+
+  /* ---------------------------------------------------------------- weapons: platform tags + stock extras */
+  const WT = {
+    ak: ['ak', 'ar', 'rifle'], m4: ['m4', 'ar15', 'ar', 'rifle'], mp5: ['mp5', 'smg'], shotgun: ['shotgun', 'pump'], m60: ['m60', 'lmg'],
+    awp: ['awp', 'sniper', 'bolt'], deagle: ['deagle', 'pistol'], m1911: ['m1911', 'pistol']
+  };
+  const FAMILY = { ak: 'ak', m4: 'ar15', mp5: 'smg', shotgun: 'shotgun', m60: 'lmg', awp: 'sniper', deagle: 'pistol', m1911: 'pistol' };
+  /* values the base weapon table does not have: bullet velocity (m/s, game scale) and the neutral handling factors */
+  const BASE_X = {
+    ak: { velocity: 720 }, m4: { velocity: 860 }, mp5: { velocity: 430 }, shotgun: { velocity: 400 }, m60: { velocity: 840 },
+    awp: { velocity: 930 }, deagle: { velocity: 470 }, m1911: { velocity: 290 }, knife: { velocity: 0 }
+  };
+  for (const id in BASE_X) { const c = Weapons.CFG[id]; if (!c) continue; Object.assign(c, { noise: 1, flash: 1, sway: 1, stab: 1, rc: 1, sprintOutMul: 1, burst: 0, burn: 0, att: null }, BASE_X[id]); c.baseVelocity = c.velocity; }
+
+  /* ---------------------------------------------------------------- stats shown in the Gunsmith (order = display order) */
+  const STATS = [
+    { k: 'dmg', name: 'DAMAGE', u: '' }, { k: 'rpm', name: 'FIRE RATE', u: 'RPM' }, { k: 'vel', name: 'BULLET VELOCITY', u: 'm/s' }, { k: 'rng', name: 'EFFECTIVE RANGE', u: 'm' },
+    { k: 'rc', name: 'RECOIL CONTROL', u: '' }, { k: 'hr', name: 'HORIZONTAL RECOIL', u: '' }, { k: 'vr', name: 'VERTICAL RECOIL', u: '' },
+    { k: 'hip', name: 'HIP-FIRE ACCURACY', u: '' }, { k: 'ads', name: 'ADS ACCURACY', u: '' }, { k: 'adst', name: 'ADS SPEED', u: 'ms' }, { k: 'spf', name: 'SPRINT-TO-FIRE', u: 'ms' },
+    { k: 'rld', name: 'RELOAD SPEED', u: 's' }, { k: 'mag', name: 'MAGAZINE', u: 'rds' }, { k: 'mov', name: 'MOVEMENT SPEED', u: '%' }, { k: 'sway', name: 'WEAPON SWAY', u: '' }, { k: 'stab', name: 'AIM STABILITY', u: '' }
+  ];
+  const STAT = {}; STATS.forEach((s) => { STAT[s.k] = s; });
+
+  /* ---------------------------------------------------------------- the catalog */
+  const ATT = Object.create(null), ORDER = [];
+  function def(id, cat, name, desc, mods, o) {
+    const d = Object.assign({ id, cat, name, desc, mods: mods || {}, fits: ['*'], not: [], x: {}, names: {}, model: null, conflicts: [] }, o || {});
+    ATT[id] = d; ORDER.push(id); return d;
+  }
+  const AR = ['ar'], SMG = ['smg'], LMG = ['lmg'], SNP = ['sniper'], SG = ['shotgun'], PST = ['pistol'];
+  const RIFLEISH = ['ar', 'smg', 'lmg'];
+
+  /* ---- OPTICS (zoom is a multiplier on the weapon's own ADS zoom; scope:true draws the full-screen scope picture) ---- */
+  def('opt_dot', 'optic', 'Kepler Red Dot', 'Compact red-dot sight. Clean, bright dot for quick, accurate target acquisition.', { ads: 8, adst: -3, mov: -1 }, { fits: [...AR, ...SMG, ...LMG, ...SG], x: { zoom: 1.08 }, model: ['dot', { len: 0.052, h: 0.04 }] });
+  def('opt_reflex', 'optic', 'Micro Reflex', 'Low-profile open reflex sight. Fast to settle on target, but a small window makes it twitchy.', { adst: 6, ads: 3, stab: -5 }, { fits: [...AR, ...SMG, ...LMG, ...SG], x: { zoom: 1.0 }, model: ['reflex', { len: 0.04, h: 0.034 }] });
+  def('opt_holo', 'optic', 'HoloLock Hybrid', 'Wide-window holographic sight with a crisp reticle. Excellent on the move, slightly slow to raise.', { ads: 11, hip: 4, adst: -7, sway: -3 }, { fits: [...AR, ...SMG, ...LMG, ...SG], x: { zoom: 1.12 }, model: ['holo', { len: 0.075, h: 0.05 }] });
+  def('opt_2x', 'optic', 'Tac 2.5x Scope', 'Fixed 2.5x combat scope for mid-range work.', { ads: 12, rng: 3, adst: -11, mov: -2, sway: -5 }, { fits: [...AR, ...SMG, ...LMG], x: { zoom: 1.7 }, model: ['scope', { len: 0.118, r: 0.0185, bell: 0.026 }] });
+  def('opt_4x', 'optic', 'Marksman 4x Scope', 'Magnified 4x scope. Great long-range clarity at the cost of handling.', { ads: 14, rng: 5, adst: -17, mov: -4, sway: -8, hip: -3 }, { fits: [...AR, ...LMG], not: ['ak'], x: { zoom: 2.4 }, model: ['scope', { len: 0.15, r: 0.0205, bell: 0.032 }] });
+  def('opt_6x', 'optic', 'Longview 6x Scope', 'High-magnification scope with a full scope picture. Built for holding long sight lines.', { ads: 17, rng: 8, adst: -23, mov: -6, sway: -12, hip: -6 }, { fits: ['m4', 'm60'], x: { zoom: 3.3, scope: true }, model: ['scope', { len: 0.19, r: 0.0225, bell: 0.038, turret: true }] });
+  def('opt_posp', 'optic', 'POSP 3.5x Scope', 'AK-platform side-rail scope with an illuminated chevron reticle. A staple of the AK family.', { ads: 13, rng: 4, adst: -13, mov: -3, sway: -4 }, { fits: ['ak'], x: { zoom: 2.2 }, model: ['posp', { len: 0.17 }] });
+  def('opt_iron', 'optic', 'Folding Iron Sights', 'Strip the glass and run flip-up irons. The fastest way to put a big rifle on target.', { adst: 28, ads: -10, rng: -6, mov: 3, sway: 6 }, { fits: SNP, x: { zoom: 0.46, scope: false }, model: ['iron', {}] });
+  def('opt_s6', 'optic', 'Ranger 6x Scope', 'Low-power variable scope for dynamic sniping.', { adst: 12, ads: 6, rng: -4, mov: 2 }, { fits: SNP, x: { zoom: 0.72, scope: true }, model: ['scope', { len: 0.26, r: 0.0235, bell: 0.042, turret: true }] });
+  def('opt_s10', 'optic', 'Sentinel 10x Scope', 'High-power precision scope with a mil-dot reticle.', { ads: 10, rng: 8, adst: -12, mov: -2, sway: -6 }, { fits: SNP, x: { zoom: 1.35, scope: true }, model: ['scope', { len: 0.3, r: 0.0245, bell: 0.046, turret: true }] });
+  def('opt_s14', 'optic', 'Overwatch 14x Scope', 'Extreme-range scope. Enormous reach, ponderous to bring up and hard to hold steady.', { ads: 13, rng: 12, adst: -24, mov: -5, sway: -14 }, { fits: SNP, x: { zoom: 1.95, scope: true }, model: ['scope', { len: 0.34, r: 0.0255, bell: 0.05, turret: true }] });
+  def('opt_pdot', 'optic', 'Slide-Mount Micro Dot', 'Pistol red dot that rides the slide. Instant, precise sight picture.', { ads: 9, adst: -3, hip: 2 }, { fits: PST, x: { zoom: 1.1 }, model: ['pdot', { len: 0.034, h: 0.026 }] });
+  def('opt_pref', 'optic', 'Open Reflex', 'Minimalist pistol reflex. Very quick to raise.', { adst: 7, ads: 4, stab: -4 }, { fits: PST, x: { zoom: 1.0 }, model: ['reflex', { len: 0.032, h: 0.024 }] });
+  def('opt_ghost', 'optic', 'Ghost-Ring Sight', 'Large aperture rear sight with a bead front. Fast, forgiving and wide.', { adst: 5, ads: 6, rng: 2, sway: -2 }, { fits: SG, x: { zoom: 1.05 }, model: ['ghost', {}] });
+  /* shotgun scopes: AX-50-grade glass (knurled mag ring, long sunshade, turrets, cantilever rings); the 4x and 8x draw the full scope picture */
+  def('opt_sg2', 'optic', 'Brushmaster 2x Scope', 'Low-power scout scope for shotguns. Wide, forgiving field of view and real glass: fast enough to stay useful indoors, clear enough to read a hallway.', { ads: 12, rng: 3, adst: -9, mov: -2, sway: -4, hip: -1 }, { fits: SG, x: { zoom: 1.6 }, model: ['scopeHQ', { len: 0.2, r: 0.0195, bell: 0.029, turret: true }] });
+  def('opt_sg4', 'optic', 'Slugline 4x Scope', 'Slug-hunter scope with a full scope picture. Turns the pump into a mid-range slug thrower at the cost of handling.', { ads: 16, rng: 6, adst: -17, mov: -4, sway: -8, hip: -4 }, { fits: SG, x: { zoom: 2.4, scope: true }, model: ['scopeHQ', { len: 0.25, r: 0.0215, bell: 0.035, turret: true }] });
+  def('opt_sg8', 'optic', 'Longslug 8x Scope', 'Big-bell precision scope with a full scope picture. Extreme reach for a shotgun, ponderous to raise and hard to hold steady.', { ads: 20, rng: 9, adst: -26, mov: -6, sway: -13, hip: -8 }, { fits: SG, x: { zoom: 3.6, scope: true }, model: ['scopeHQ', { len: 0.3, r: 0.0235, bell: 0.043, turret: true }] });
+  def('opt_ar3', 'optic', 'Ranger 3x Prism Scope', 'Compact prism scope with etched glass and a short sunshade. Mid-range clarity without much weight.', { ads: 13, rng: 4, adst: -12, mov: -3, sway: -5 }, { fits: [...AR, ...SMG, ...LMG], x: { zoom: 1.9 }, model: ['scopeHQ', { len: 0.17, r: 0.0185, bell: 0.028 }] });
+  def('opt_ar8', 'optic', 'Reaper 8x Scope', 'Full-size precision scope with a full scope picture and a big sunshade. Built for reaching out with a rifle.', { ads: 18, rng: 9, adst: -24, mov: -6, sway: -12, hip: -7 }, { fits: [...AR, ...LMG], x: { zoom: 3.6, scope: true }, model: ['scopeHQ', { len: 0.28, r: 0.0235, bell: 0.04, turret: true }] });
+  def('opt_pscope', 'optic', 'Longslide 2x Pistol Scope', 'Long-eye-relief handgun scope that rides the slide. Real magnification for a sidearm.', { ads: 10, rng: 4, adst: -12, mov: -2, sway: -4 }, { fits: PST, x: { zoom: 1.5 }, model: ['scopeHQ', { len: 0.14, r: 0.0155, bell: 0.022 }] });
+
+  /* ---- MUZZLES (flash = muzzle flash scale, noise = how far bots hear a shot) ---- */
+  def('mz_sup', 'muzzle', 'Ghostline Suppressor', 'Full-length sound suppressor. Kills the muzzle flash and muffles the shot so bots hear you far less. Costs a little velocity and range.', { vel: -8, rng: -8, vr: 3 }, { fits: [...RIFLEISH, ...SNP, ...PST, ...SG], not: ['m60'], x: { noise: 0.28, flash: 0, snd: [0.42, 2400] }, model: ['sup', { len: 0.22, k: 1.55 }] });
+  def('mz_ssup', 'muzzle', 'Compact Suppressor', 'Short-body suppressor. Good flash and noise reduction with less length and less penalty.', { vel: -4, rng: -4, adst: 1 }, { fits: [...RIFLEISH, ...PST], not: ['m60'], x: { noise: 0.5, flash: 0.1, snd: [0.6, 3600] }, model: ['sup', { len: 0.13, k: 1.5 }] });
+  def('mz_comp', 'muzzle', 'Tempest Compensator', 'Vented compensator that pushes the muzzle back down. Tames vertical climb but is louder and flashier.', { vr: 12, hr: -4, adst: -2 }, { fits: [...RIFLEISH, ...SNP, ...PST], x: { noise: 1.12, flash: 1.1 }, model: ['comp', { len: 0.07 }] });
+  def('mz_fh', 'muzzle', 'Flash Guard', 'Prong-style flash hider. Hides your muzzle flash and settles the weapon a touch.', { rc: 5, hr: 4, rng: -2 }, { fits: [...RIFLEISH, ...SNP], x: { flash: 0.3 }, model: ['fh', { len: 0.065 }] });
+  def('mz_brake', 'muzzle', 'Ported Muzzle Brake', 'Aggressive baffled brake that cuts recoil in both directions. Loud, bright and a bit slower to aim.', { vr: 8, hr: 9, rc: 4, adst: -3 }, { fits: [...RIFLEISH, ...SNP, ...PST], x: { noise: 1.22, flash: 1.3 }, model: ['brake', { len: 0.075 }] });
+  def('mz_slant', 'muzzle', 'AK-74 Slant Brake', 'The classic AK-74 slant muzzle brake. Pushes the muzzle down and across, with a fierce blast.', { vr: 10, hr: 8, rc: 4, adst: -2 }, { fits: ['ak'], x: { noise: 1.18, flash: 1.2 }, model: ['brake', { len: 0.07 }] });
+  def('mz_a2', 'muzzle', 'A2 Birdcage Flash Hider', 'The classic Armalite birdcage. Hides the flash and steadies the rifle a little.', { hr: 5, rc: 4, vel: -1 }, { fits: ['ar15'], x: { flash: 0.4 }, model: ['fh', { len: 0.07 }] });
+  def('mz_breach', 'muzzle', 'Breacher Choke', 'Stand-off breaching tip. Hits much harder up close but the pattern dies off quickly.', { dmg: 14, rng: -22, hip: -8, adst: 2 }, { fits: SG, conflicts: ['fm_slug'], model: ['brake', { len: 0.055 }] });
+  def('mz_full', 'muzzle', 'Full Choke', 'Tight choke that keeps the shot pattern together at distance, at the cost of handling speed.', { hip: 22, ads: 18, rng: 12, adst: -6 }, { fits: SG, conflicts: ['fm_slug'], model: ['choke', { len: 0.05, k: 1.25 }] });
+  def('mz_sbrake', 'muzzle', 'Recoil Break', 'Slotted shotgun brake that soaks up the kick. Widens the pattern and is a lot louder.', { vr: 20, rc: 8, hip: -10, ads: -8 }, { fits: SG, x: { noise: 1.2, flash: 1.25 }, model: ['brake', { len: 0.06 }] });
+  def('mz_lcomp', 'muzzle', 'Linear Compensator', 'Long, baffled compensator that drives the muzzle down and keeps the flash low. A touch louder.', { vr: 9, hr: 6, adst: -2, rng: -2 }, { fits: [...RIFLEISH, ...SNP], x: { noise: 1.1, flash: 0.6 }, model: ['comp', { len: 0.1 }] });
+  def('mz_pcomp', 'muzzle', 'Slide Compensator', 'Slotted pistol compensator. Flatter muzzle rise at the cost of a brighter flash.', { vr: 10, hr: 3, adst: -2 }, { fits: PST, x: { noise: 1.1, flash: 1.15 }, model: ['comp', { len: 0.05 }] });
+  def('mz_ic', 'muzzle', 'Improved Cylinder Choke', 'Mid-constriction choke: a forgiving all-rounder pattern with a little extra reach.', { hip: 10, ads: 8, rng: 4, adst: -2 }, { fits: SG, model: ['choke', { len: 0.05, k: 1.12 }] });
+
+  /* ---- BARRELS ---- */
+  const BN = (a) => a;
+  def('br_long', 'barrel', 'Long Barrel', 'Longer barrel that squeezes more speed and reach out of every round. Heavier and slower to handle.', { vel: 12, rng: 14, adst: -6, mov: -3, sway: -4 }, { fits: [...RIFLEISH, ...SNP, ...PST, ...SG], names: { m4: 'Mk18 20" Rifle Barrel', ak: 'RPK-Length Barrel', mp5: 'MP5 Extended Barrel', m60: 'M60E4 Long Barrel', awp: 'AX-50 Long Fluted Barrel', deagle: '10" Long Barrel', m1911: 'Long-Slide Barrel', shotgun: '28" Long Barrel' }, model: ['bar_long', { ext: 0.09 }] });
+  def('br_heavy', 'barrel', 'Heavy Barrel', 'Thick, heavy profile. Faster, flatter bullets and steadier recoil, but slower to raise and carry.', { vel: 10, rng: 8, rc: 6, adst: -8, mov: -4, sway: -6 }, { fits: [...RIFLEISH, ...SNP, ...PST], names: { m4: 'SOCOM Heavy Barrel', ak: 'Reinforced Heavy Barrel', mp5: 'MP5SD Heavy Barrel', m60: 'Chrome-Lined Heavy Barrel', awp: 'Bull Barrel', deagle: 'Heavy Compensated Barrel', m1911: 'Bull Barrel' }, model: ['bar_heavy', { k: 1.42 }] });
+  def('br_flute', 'barrel', 'Lightweight Fluted Barrel', 'Fluted lightweight barrel. Snappy handling and mobility, but looser recoil.', { adst: 8, mov: 3, hip: 4, rc: -6, vr: -4 }, { fits: [...RIFLEISH, ...SNP, ...PST, ...SG], model: ['bar_flute', { k: 1.28 }] });
+  def('br_port', 'barrel', 'Ported Barrel', 'Gas ports bleed off muzzle rise. Calmer vertical and horizontal kick, a little less reach and louder.', { vr: 9, hr: 7, rng: -6, vel: -2 }, { fits: [...RIFLEISH, ...SNP, ...PST, ...SG], x: { noise: 1.1, flash: 1.15 }, model: ['bar_port', { k: 1.3 }] });
+  def('br_match', 'barrel', 'Match-Grade Barrel', 'Hand-lapped match barrel with a target crown. Tighter ADS groups, a looser hip.', { ads: 10, rng: 6, hip: -8, rpm: -3 }, { fits: [...RIFLEISH, ...SNP, ...PST], model: ['bar_match', { k: 1.34 }] });
+  def('br_short', 'barrel', 'Short Barrel', 'Trimmed carbine-length barrel. Gets on target faster and sprints out quicker, but gives up bullet speed and reach and kicks a little harder.', { adst: 9, spf: 7, mov: 3, hip: 4, sway: 3, vel: -9, rng: -11, vr: -3 }, { fits: [...RIFLEISH, ...SNP, ...SG], x: { flash: 1.15, noise: 1.05 }, names: { m4: 'Mk18 CQBR 10.3" Barrel', ak: 'AKS-74U Short Barrel', mp5: 'MP5K Short Barrel', m60: 'Cut-Down Barrel', awp: 'Carbine-Length Barrel', shotgun: '18" Short Barrel' }, model: ['bar_short', { u: 0.55 }] });
+  def('br_cqb', 'barrel', 'CQB Stub Barrel', 'Barrel chopped back to the handguard. Lightning-fast handling and movement, but short-ranged, slow bullets, a big muzzle blast and a lively recoil.', { adst: 16, spf: 13, mov: 5, hip: 6, sway: 5, ads: -4, vel: -18, rng: -23, vr: -8, hr: -5, rc: -6 }, { fits: [...AR, ...SMG, ...LMG], x: { flash: 1.35, noise: 1.12 }, names: { m4: 'Mk18 SBR 7.5" Barrel', ak: 'AKS-74UB Stub Barrel', mp5: 'MP5K-PDW Stub Barrel', m60: 'Chopped Barrel' }, model: ['bar_short', { u: 0 }] });
+  def('br_sawed', 'barrel', 'Sawed-Off Barrel', 'Barrel and magazine tube hacksawed down to the pump. Raises and swings almost instantly, but the pattern is wide, the reach is poor, the kick is brutal and it holds fewer shells.', { adst: 30, spf: 22, mov: 5, hip: -12, ads: -20, rng: -34, vel: -12, vr: -14, hr: -8, mag: -30 }, { fits: SG, x: { flash: 1.4, noise: 1.15 }, names: { shotgun: 'Sawed-Off Barrel' }, model: ['bar_short', { u: 0.3 }] });
+  def('br_xlong', 'barrel', 'Extra-Long Barrel', 'Very long free-floating barrel. The fastest, flattest bullets and the most reach, but heavy, slow to raise and unsteady on the move.', { vel: 20, rng: 24, ads: 4, adst: -15, spf: -10, mov: -6, sway: -8, hip: -6 }, { fits: [...AR, ...LMG, ...SNP], names: { m4: 'Mk12 SPR 24" Barrel', ak: 'Marksman 26" Barrel', m60: 'Long-Range Barrel', awp: 'Anti-Materiel Long Barrel' }, model: ['bar_long', { ext: 0.17 }] });
+  def('br_sup', 'barrel', 'Integral Suppressor Barrel', 'Fat barrel with a suppressor built in. Shots are quiet and flashless, but it is heavy, slower and a little shorter on reach.', { vel: -5, rng: -4, adst: -5, mov: -2 }, { fits: [...AR, ...SMG, ...SNP], not: ['m60'], x: { noise: 0.4, flash: 0.15, snd: [0.5, 3000] }, model: ['bar_heavy', { k: 1.7 }] });
+  def('br_rifled', 'barrel', 'Rifled Slug Barrel', 'Rifled bore for sabot slugs. Tighter groups and real reach, but a looser hip pattern.', { ads: 12, rng: 14, vel: 6, hip: -8 }, { fits: SG, model: ['bar_match', { k: 1.28 }] });
+
+  /* ---- UNDERBARREL ---- */
+  def('ub_vgrip', 'under', 'Vertical Foregrip', 'Straight foregrip for a firm two-handed hold. Cuts vertical recoil, a bit slower to ADS.', { vr: 10, rc: 6, adst: -4 }, { fits: [...RIFLEISH, ...SNP], model: ['vgrip', {}] });
+  def('ub_angled', 'under', 'Angled Foregrip', 'Angled grip that locks the wrist. Reduces horizontal recoil and slightly slows sprint-to-fire.', { hr: 10, rc: 4, spf: -5 }, { fits: RIFLEISH, model: ['agrip', {}] });
+  def('ub_hand', 'under', 'Hand Stop', 'Minimal stop that gets the gun up and moving quickly. Gives up some recoil control.', { adst: 6, spf: 7, hip: 4, vr: -6, stab: -4 }, { fits: [...RIFLEISH, ...SNP], model: ['hstop', {}] });
+  def('ub_tac', 'under', 'Tactical Foregrip', 'Ergonomic tactical grip for aim stability and hip control.', { stab: 10, hip: 5, rc: 4, adst: -5, mov: -2 }, { fits: [...AR, ...SMG, ...LMG], model: ['tgrip', {}] });
+  def('ub_stub', 'under', 'Stubby Grip', 'Short, compact grip for close-quarters handling.', { hr: 6, vr: 4, adst: 3, spf: 3, stab: -2 }, { fits: [...AR, ...SMG], model: ['stub', {}] });
+  def('ub_bipod', 'under', 'Fold-Out Bipod', 'Folding bipod for supported shooting. Big recoil and sway gains, heavy and slow to move.', { vr: 12, rc: 10, sway: 8, mov: -6, adst: -8, spf: -8 }, { fits: [...AR, ...LMG, ...SNP], model: ['bipod', {}] });
+  def('ub_hybrid', 'under', 'Ergo Hybrid Grip', 'Palm-swell hybrid grip that cuts both axes of recoil, but is slower to bring up.', { hr: 7, vr: 7, stab: 5, adst: -6, mov: -2 }, { fits: [...RIFLEISH, ...SNP], model: ['tgrip', {}] });
+
+  /* ---- MAGAZINES (mag = % of the stock capacity) ---- */
+  def('mg_ext', 'mag', 'Extended Magazine', 'Extended magazine for more rounds downrange. Slightly slower reloads and handling.', { mag: 40, rld: -8, adst: -2, mov: -1 }, { fits: [...RIFLEISH, ...SNP, ...PST], names: { m60: '150-Round Belt Box', awp: '10-Round Extended Box', deagle: '10-Round Extended Mag', m1911: '12-Round Extended Mag' }, model: ['mag_ext', {}] });
+  def('mg_fast', 'mag', 'Fast Mag', 'Reinforced mag with a pull-tab and flared well for quick swaps. Holds a few rounds less.', { rld: 24, mag: -10, mov: 0 }, { fits: [...RIFLEISH, ...SNP, ...PST, ...SG], names: { m60: 'Quick-Feed Belt', shotgun: 'Quick-Load Feed Gate' }, model: ['mag_fast', {}] });
+  def('mg_drum', 'mag', 'Drum Magazine', 'Huge-capacity drum. Double the ammunition, but heavy and slow to reload and raise.', { mag: 100, rld: -20, adst: -10, mov: -5, spf: -8 }, { fits: [...AR, ...SMG], model: ['mag_drum', { replace: true }] });
+  def('mg_tube', 'mag', 'Extended Tube', 'Magazine tube extension that holds three more shells.', { mag: 50, mov: -2, adst: -3 }, { fits: SG, model: ['tube_ext', {}] });
+  def('mg_twin', 'mag', 'Twin-Drum Magazine', 'Dual-lobe drum with a huge round count. Heavy, slow to reload and slow to raise.', { mag: 70, rld: -14, adst: -7, mov: -4, spf: -6 }, { fits: [...AR, ...SMG], model: ['mag_drum', { lobes: 2, replace: true }] });
+  def('mg_dual', 'mag', 'Dual-Mag Coupler', 'Two magazines clamped side by side, one inverted. Flip it for lightning-fast swaps, at the cost of a clumsier gun.', { rld: 18, adst: -3, mov: -1, hip: -2 }, { fits: [...AR, ...SMG], model: ['mag_dual', {}] });
+
+  /* ---- REAR GRIPS ---- */
+  def('rg_rubber', 'grip', 'Rubberized Grip', 'Soft rubber sleeve that settles the gun in the hand for better hip control.', { hip: 6, stab: 4, adst: -2 }, { fits: [...AR, ...SMG, ...LMG, ...SNP, ...PST], names: { m4: 'AR Rubberized Grip', ak: 'AK Rubberized Grip', mp5: 'MP5 Rubberized Grip', deagle: 'Rubber Grip Sleeve', m1911: 'Rubber Wrap-Around Grip' }, model: ['grip', { mat: 'rubber', rib: false }] });
+  def('rg_gran', 'grip', 'Granulated Grip', 'Rough granulated grip tape for hard-hitting weapons. Better recoil control, slower off the sprint.', { rc: 8, hr: 4, spf: -4 }, { fits: [...AR, ...SMG, ...LMG, ...SNP, ...PST], model: ['grip', { mat: 'stip', rib: false }] });
+  def('rg_ergo', 'grip', 'Ergonomic Grip', 'Sculpted grip that gets the gun up fast but kicks harder.', { adst: 4, spf: 7, vr: -4 }, { fits: [...AR, ...SMG, ...LMG, ...SNP, ...PST], model: ['grip', { mat: 'poly', rib: true }] });
+  def('rg_stip', 'grip', 'Stippled Grip', 'Precision stippling for rock-steady aim at the cost of speed.', { stab: 8, sway: 5, spf: -3 }, { fits: [...AR, ...SMG, ...LMG, ...SNP, ...PST], model: ['grip', { mat: 'stip', rib: true }] });
+
+  def('rg_wood', 'grip', 'Laminated Wood Grip', 'AK-pattern wooden pistol grip. Comfortable and steady, slow off the sprint.', { stab: 6, rc: 5, spf: -4, mov: -1 }, { fits: ['ak'], model: ['grip', { mat: 'wood', rib: false }] });
+  def('rg_alu', 'grip', 'Machined Aluminum Grip', 'Billet aluminum grip with checkering. Positive control under recoil, cold and slow to settle.', { rc: 5, hr: 5, adst: -3, spf: -3 }, { fits: [...AR, ...SMG, ...LMG, ...SNP, ...PST], model: ['grip', { mat: 'alu', rib: true }] });
+  def('rg_cork', 'grip', 'Cork-Wrapped Grip', 'Cork-and-wood grip that stays comfortable in the hand. Steadies hip-fire.', { hip: 5, stab: 4, spf: -1 }, { fits: [...AR, ...SMG, ...LMG, ...SNP, ...PST], model: ['grip', { mat: 'wood', rib: false }] });
+
+  /* ---- STOCKS ---- */
+  def('st_light', 'stock', 'Lightweight Stock', 'Skeletonized stock. Better movement and ADS handling, but the gun kicks more.', { mov: 4, adst: 6, spf: 4, vr: -6, hr: -4 }, { fits: [...AR, ...SMG, ...LMG, ...SNP, ...SG], names: { m4: 'Skeleton Collapsible Stock', ak: 'Folding Skeleton Stock', mp5: 'Slim Wire Stock', m60: 'Skeleton Stock', awp: 'Skeleton Chassis Stock', shotgun: 'Skeleton Stock' }, model: ['stock_light', {}] });
+  def('st_tac', 'stock', 'Tactical Stock', 'Padded adjustable stock for solid recoil control and steadier aim.', { rc: 6, stab: 6, mov: -2 }, { fits: [...AR, ...SMG, ...LMG, ...SNP, ...SG], names: { m4: 'Collapsible Tactical Stock', ak: 'Polymer Tactical Stock', mp5: 'Tactical Fixed Stock' }, model: ['stock_tac', {}] });
+  def('st_heavy', 'stock', 'Heavy Stock', 'Weighted stock with a thick recoil pad. Tames both axes of recoil but weighs you down.', { vr: 10, hr: 6, rc: 8, stab: 6, adst: -8, mov: -5, spf: -6 }, { fits: [...AR, ...SMG, ...LMG, ...SNP, ...SG], names: { ak: 'Heavy Marksman Stock', m4: 'Heavy Buffer Stock', mp5: 'Heavy Fixed Stock' }, model: ['stock_heavy', {}] });
+  def('st_prec', 'stock', 'Precision Stock', 'Adjustable cheek riser and butt hook for a perfect, steady cheek weld.', { ads: 10, sway: 10, rc: 4, adst: -6, spf: -6, mov: -3 }, { fits: [...AR, ...SMG, ...LMG, ...SNP], model: ['stock_prec', {}] });
+  def('st_a2', 'stock', 'A2 Fixed Rifle Stock', 'Full-length fixed Armalite stock. Soaks up recoil, heavy on the move.', { vr: 8, hr: 5, rc: 7, stab: 5, adst: -6, mov: -3 }, { fits: ['ar15'], model: ['stock_heavy', {}] });
+  def('st_none', 'stock', 'No Stock', 'Remove the stock. Lightning-fast handling with punishing recoil and a floaty aim.', { adst: 12, spf: 10, mov: 5, vr: -14, hr: -10, stab: -10 }, { fits: [...AR, ...SMG, ...SNP, ...SG], model: ['stock_none', {}] });
+  def('st_fold', 'stock', 'Folding Stock', 'Side-folding stock: quick to raise and to sprint with, but it gives up some recoil control.', { adst: 4, spf: 5, mov: 2, rc: -3, stab: -2 }, { fits: [...AR, ...SMG, ...LMG, ...SNP, ...SG], model: ['stock_light', {}] });
+  def('st_gel', 'stock', 'Gel Recoil Stock', 'Gel-padded stock that soaks up the kick. Smooth, steady and a little heavy.', { rc: 8, vr: 7, hr: 5, adst: -4, mov: -2 }, { fits: [...AR, ...SMG, ...LMG, ...SNP, ...SG], model: ['stock_tac', {}] });
+
+  /* ---- TACTICAL ---- */
+  def('tc_laser', 'tac', 'Tac Laser Sight', 'Red laser for point-shooting. Big hip-fire gains and a quicker sprint-to-fire.', { hip: 14, spf: 8, adst: -3 }, { x: { laser: 'red' }, model: ['laser', { col: 'red' }] });
+  def('tc_laser_g', 'tac', 'Strike Laser (Green)', 'High-visibility green laser that helps hold your sights on target.', { hip: 10, ads: 5, mov: -2 }, { x: { laser: 'green' }, model: ['laser', { col: 'green' }] });
+  def('tc_light', 'tac', 'Stinger Flashlight', 'Weapon light that makes aiming feel natural: quicker ADS and a steadier hold.', { adst: 6, hip: 6, stab: 4, sway: -2 }, { x: { light: true }, model: ['light', {}] });
+  def('tc_combo', 'tac', 'Laser / Light Combo', 'Combined laser and light module. Balanced handling for a small weight penalty.', { hip: 9, adst: 3, spf: 4, mov: -2, stab: -2 }, { x: { laser: 'red', light: true }, model: ['combo', {}] });
+
+  /* ---- FIRE MODS (ammunition and firing modes) ---- */
+  def('fm_fmj', 'fire', 'Full Metal Jacket', 'Hardened jacketed rounds: faster, flatter bullets for long reach. A little less stopping power.', { vel: 14, rng: 8, dmg: -4 }, { fits: [...RIFLEISH, ...SNP, ...PST], model: ['ammo', { col: 0xd8d8d0 }] });
+  def('fm_hp', 'fire', 'Hollow Point', 'Expanding rounds that hit much harder up close but fall off fast and fly slowly.', { dmg: 11, vel: -12, rng: -12 }, { fits: [...RIFLEISH, ...PST], model: ['ammo', { col: 0xc43a2c }] });
+  def('fm_ap', 'fire', 'Armor Piercing', 'Hardened penetrators: very fast rounds and stronger headshots, with a slower cycle.', { vel: 18, rng: 6, dmg: 3, rpm: -6 }, { fits: [...RIFLEISH, ...SNP], x: { head: 0.25 }, model: ['ammo', { col: 0x3b3b3e }] });
+  def('fm_inc', 'fire', 'Incendiary Rounds', 'Tracer-fire rounds that set targets alight: burning damage over time. Weaker bullets and a smaller mag.', { dmg: -6, mag: -10, vel: -4 }, { fits: [...RIFLEISH, ...SNP, ...PST], x: { burn: 6, tracer: 'fire' }, model: ['ammo', { col: 0xff7a1a }] });
+  def('fm_sub', 'fire', 'Subsonic Rounds', 'Low-velocity rounds that sound like a whisper and never flash. Slow and short-ranged.', { vel: -24, rng: -8, vr: 5 }, { fits: [...RIFLEISH, ...SNP, ...PST], x: { noise: 0.45, flash: 0.45, snd: [0.7, 4200] }, model: ['ammo', { col: 0x4a6a8a }] });
+  def('fm_burst', 'fire', '3-Round Burst Mod', 'Fires disciplined three-round bursts. Excellent control, lower sustained damage output.', { rc: 14, vr: 8, hr: 6, ads: 4 }, { fits: [...AR, ...SMG], x: { burst: 3 }, model: ['switch', { col: 0xffc233 }] });
+  def('fm_semi', 'fire', 'Semi-Auto Conversion', 'Match trigger and semi-auto only. More damage, reach and control, but it caps your rate of fire.', { dmg: 9, rng: 10, rc: 14, ads: 6 }, { fits: [...AR, ...SMG, ...LMG], x: { auto: false, rpmCap: 480 }, model: ['switch', { col: 0x6fd3ff }] });
+  def('fm_auto', 'fire', 'Auto Sear Conversion', 'Converts the pistol to full-auto. Huge rate of fire, wild recoil.', { rc: -12, vr: -8, hr: -8, hip: -4 }, { fits: PST, x: { auto: true }, model: ['switch', { col: 0xff4a3a }] });
+  def('fm_pburst', 'fire', 'Burst Trigger Group', 'Three-round burst trigger for pistols.', { rc: 10, vr: 6, hr: 4 }, { fits: PST, x: { burst: 3 }, model: ['switch', { col: 0xffc233 }] });
+  def('fm_slug', 'fire', '12ga Slugs', 'Single heavy slugs instead of buckshot: long-range accuracy and reach, no spread.', { rpm: -4, vr: -10, mov: -2 }, { fits: SG, x: { slug: true }, conflicts: ['mz_full'], model: ['ammo', { col: 0x7a2a22 }] });
+  def('fm_dragon', 'fire', "Dragon's Breath", 'Incendiary shells that ignite what they hit. Much weaker pellets with burning damage over time.', { dmg: -14, rng: -16, vel: -6 }, { fits: SG, x: { burn: 7, tracer: 'dragon', flash: 1.6, noise: 1.1 }, model: ['ammo', { col: 0xff6a12 }] });
+  def('fm_mag', 'fire', 'Magnum Buckshot', 'Oversized pellets with heavy impact. Stronger and further, but one shell shorter and slower to cycle.', { dmg: 12, rng: 6, mag: -17, rpm: -6 }, { fits: SG, model: ['ammo', { col: 0xc89a2a }] });
+  def('fm_match', 'fire', 'Match-Grade Rounds', 'Hand-loaded match ammunition: flatter, tighter and better on headshots, a touch less punch.', { ads: 6, rng: 6, vel: 6, rc: 4, dmg: -2 }, { fits: [...RIFLEISH, ...SNP, ...PST], x: { head: 0.15 }, model: ['ammo', { col: 0x5aa05a }] });
+  def('fm_bird', 'fire', 'Birdshot', 'Light shot for room-sweeping. Wide, forgiving and soft-kicking, but it hits much weaker and drops off fast.', { dmg: -18, hip: 14, ads: 8, rng: -12, vr: -6 }, { fits: SG, model: ['ammo', { col: 0x8a8a52 }] });
+  def('fm_flech', 'fire', 'Flechette Shells', 'Dart-loaded shells that keep a tight pattern a long way out. Better reach, weaker at point-blank.', { dmg: -6, rng: 14, ads: 10, hip: -6, vel: 6 }, { fits: SG, model: ['ammo', { col: 0x9aa6b0 }] });
+
+  /* ---- PERKS (weapon perks: no model, they live in the rifle's handling) ---- */
+  def('pk_quick', 'perk', 'Quickdraw', 'Draw faster and get the gun into the fight sooner. Slightly unsteady.', { adst: 10, spf: 10, stab: -6 }, { x: { draw: 35 } });
+  def('pk_sleight', 'perk', 'Sleight of Hand', 'Rehearsed reloads - much faster mag swaps at the cost of a looser grip.', { rld: 26, stab: -8, ads: -3 });
+  def('pk_deep', 'perk', 'Deep Pockets', 'Carry 50% more reserve ammunition. Extra weight slows you slightly.', { mov: -3 }, { x: { reserve: 0.5 } });
+  def('pk_feather', 'perk', 'Featherweight', 'Stripped-down handling. Quicker on your feet and out of a sprint, harder to keep under control.', { mov: 6, spf: 6, rc: -8, stab: -6 });
+  def('pk_steady', 'perk', 'Steady Aim', 'Tighter hip-fire and a calm hold; slower to bring up the sights.', { hip: 15, sway: 8, adst: -6 });
+  def('pk_power', 'perk', 'Stopping Power', 'Extra damage per round. A slightly slower rate of fire.', { dmg: 8, rpm: -6, mov: -1 });
+  def('pk_focus', 'perk', 'Focus', 'Aim stability: shrug off flinch and camera shake from fire and damage.', { stab: 18, sway: 8, adst: -4, mov: -2 });
+  def('pk_ghost', 'perk', 'Silent Hunter', 'Your shots are quieter and flash less, even unsuppressed. A little less punch.', { dmg: -4, vel: -4, rng: -3 }, { x: { noise: 0.5, flash: 0.7 } });
+  def('pk_marksman', 'perk', 'Marksman', 'Reach and bullet speed for engaging at distance, with poorer hip-fire.', { rng: 12, vel: 10, ads: 6, hip: -10, mov: -2 });
+  def('pk_run', 'perk', 'Run & Gun', 'Get shots off straight out of a sprint with better hip-fire; poorer ADS.', { spf: 16, hip: 8, ads: -8 });
+  def('pk_bolt', 'perk', 'Bolt Mastery', 'Cycle the bolt much faster between shots. Recoil is less controlled.', { rpm: 30, rc: -12, hr: -8 }, { fits: SNP });
+  def('pk_pump', 'perk', 'Quick Pump', 'Pump the action faster. The shotgun bucks harder.', { rpm: 25, vr: -10, rc: -6 }, { fits: SG });
+  def('pk_belt', 'perk', 'Belt Feed Assist', 'Smoother belt feed for quicker reloads and a larger belt; slower to raise.', { rld: 20, mag: 10, adst: -6 }, { fits: LMG });
+  def('pk_trigger', 'perk', 'Trigger Finesse', 'Hair-trigger action for a faster pistol cycle; less recoil control.', { rpm: 15, spf: 10, rc: -8 }, { fits: PST });
+  def('pk_hawk', 'perk', 'Hawkeye', 'A steady, patient eye: tighter ADS and less sway, slower to settle the sights.', { ads: 12, sway: 10, adst: -6 });
+  def('pk_light', 'perk', 'Light Hands', 'Slick, fast handling: quicker to the shoulder and quicker reloads, but a shakier hold.', { adst: 12, rld: 8, stab: -4 });
+  def('pk_akimbo', 'perk', 'Akimbo', 'Wield a second pistol. Left click fires the left gun, right click fires the right gun (no ADS). Reload refills both when you are not shooting, or only the gun that is not firing. Looser hip-fire, slower draw.', { hip: -6, mov: -3, stab: -5 }, { fits: PST, x: { akimbo: true, draw: -20 } });
+  def('pk_disc', 'perk', 'Recoil Discipline', 'Trained recoil management on both axes, at the cost of agility.', { vr: 10, hr: 8, adst: -5, mov: -2 });
+
+  /* ---------------------------------------------------------------- compatibility */
+  function tagsOf(wid) { return WT[wid] || []; }
+  function fitsWeapon(a, wid) {
+    const t = tagsOf(wid); if (!t.length) return false;
+    for (const n of a.not) if (t.indexOf(n) >= 0) return false;
+    if (a.fits[0] === '*') return true;
+    for (const f of a.fits) if (t.indexOf(f) >= 0) return true;
+    return false;
+  }
+  function nameFor(a, wid) { return a.names[wid] || a.names[FAMILY[wid]] || a.name; }
+  const _list = {};
+  function listFor(wid) {   /* { catId: [att...] } for this weapon, in catalog order */
+    if (_list[wid]) return _list[wid];
+    const o = {}; for (const c of CATS) o[c.id] = [];
+    for (const id of ORDER) { const a = ATT[id]; if (fitsWeapon(a, wid)) o[a.cat].push(a); }
+    return (_list[wid] = o);
+  }
+  function catsFor(wid) { const l = listFor(wid); return CATS.filter((c) => l[c.id].length); }
+  function isWeapon(wid) { return !!WT[wid] && !!Weapons.CFG[wid]; }
+
+  /* ---------------------------------------------------------------- equipping rules (pure: operates on id lists) */
+  function normalize(wid, list) {   /* drop unknown / incompatible / duplicate / same-category-twice entries, enforce the limit of five */
+    const out = [], seenCat = {}, seen = {};
+    for (const id of (list || [])) {
+      const a = ATT[id]; if (!a || seen[id] || seenCat[a.cat] || !fitsWeapon(a, wid)) continue;
+      let bad = false; for (const o of out) { if (ATT[o].conflicts.indexOf(id) >= 0 || a.conflicts.indexOf(o) >= 0) bad = true; }
+      if (bad) continue; if (out.length >= MAX) break;
+      out.push(id); seen[id] = 1; seenCat[a.cat] = 1;
+    }
+    return out;
+  }
+  /* can `id` be equipped on `wid` given `list`? -> { ok, reason, replaces } (equipping replaces the item already in the same category) */
+  function check(wid, id, list) {
+    const a = ATT[id]; list = list || []; if (!a) return { ok: false, reason: 'UNKNOWN ATTACHMENT' };
+    if (list.indexOf(id) >= 0) return { ok: false, reason: 'ALREADY EQUIPPED' };
+    if (!fitsWeapon(a, wid)) return { ok: false, reason: 'NOT COMPATIBLE WITH THIS WEAPON' };
+    let replaces = null; for (const o of list) if (ATT[o].cat === a.cat) replaces = o;
+    for (const o of list) { if (o === replaces) continue; if (ATT[o].conflicts.indexOf(id) >= 0 || a.conflicts.indexOf(o) >= 0) return { ok: false, reason: 'CONFLICTS WITH ' + ATT[o].name.toUpperCase() }; }
+    if (!replaces && list.length >= MAX) return { ok: false, reason: 'ATTACHMENT LIMIT REACHED (' + MAX + '/' + MAX + ')' };
+    return { ok: true, replaces };
+  }
+  function withEquip(wid, list, id) { const c = check(wid, id, list); if (!c.ok) return null; return list.filter((x) => x !== c.replaces).concat([id]); }
+
+  /* ---------------------------------------------------------------- the stat engine */
+  function aggregate(wid, list) {
+    const m = {}, x = { noise: 1, flash: 1, snd: null, zoom: 1, scope: undefined, burst: 0, auto: undefined, rpmCap: 0, slug: false, burn: 0, tracer: null, reserve: 0, head: 0, draw: 0, laser: null, light: false, akimbo: false };
+    for (const id of list) {
+      const a = ATT[id]; if (!a) continue;
+      for (const k in a.mods) m[k] = (m[k] || 0) + a.mods[k];
+      const s = a.x; if (!s) continue;
+      if (s.noise !== undefined) x.noise *= s.noise; if (s.flash !== undefined) x.flash *= s.flash; if (s.zoom !== undefined) x.zoom *= s.zoom;
+      if (s.snd) x.snd = (x.snd && x.snd[0] < s.snd[0]) ? x.snd : s.snd; if (s.scope !== undefined) x.scope = s.scope;
+      if (s.burst) x.burst = s.burst; if (s.auto !== undefined) x.auto = s.auto; if (s.rpmCap) x.rpmCap = s.rpmCap; if (s.slug) x.slug = true;
+      if (s.burn) x.burn = Math.max(x.burn, s.burn); if (s.tracer) x.tracer = s.tracer; if (s.reserve) x.reserve += s.reserve; if (s.head) x.head += s.head;
+      if (s.draw) x.draw += s.draw; if (s.laser) x.laser = s.laser; if (s.light) x.light = true; if (s.akimbo) x.akimbo = true;
+    }
+    return { m, x };
+  }
+  const up = (m, k) => clamp(1 + (m[k] || 0) / 100, 0.2, 3);      /* higher-is-better multiplier */
+  const dn = (m, k) => clamp(1 - (m[k] || 0) / 100, 0.15, 2.5);   /* lower-is-better multiplier  */
+
+  const _cache = new Map();
+  function buildCfg(wid, list) {
+    list = normalize(wid, list); const key = wid + '|' + list.join(',');
+    let c = _cache.get(key); if (c) return c;
+    const B = Weapons.CFG[wid], ag = aggregate(wid, list), m = ag.m, x = ag.x;
+    c = Object.assign({}, B); c.base = B; c.att = list; c.key = key;
+    /* damage + falloff (the one-shot-kill sniper never drops below a lethal hit) */
+    let d0 = B.dmg[0] * up(m, 'dmg'), d1 = B.dmg[1] * up(m, 'dmg');
+    if (wid === 'awp') { d0 = Math.max(100, d0); d1 = Math.max(100, d1); }
+    c.range = [B.range[0] * up(m, 'rng'), B.range[1] * up(m, 'rng')];
+    c.pellets = B.pellets; c.head = B.head + x.head;
+    if (x.slug) { c.pellets = 1; d0 = B.dmg[0] * B.pellets * 0.8 * up(m, 'dmg'); d1 = B.dmg[1] * B.pellets * 0.8 * up(m, 'dmg'); c.range = [B.range[0] * 1.6 * up(m, 'rng'), B.range[1] * 2.0 * up(m, 'rng')]; }
+    c.dmg = [d0, d1];
+    /* fire rate / mode */
+    c.rpm = B.rpm * up(m, 'rpm'); if (x.rpmCap) c.rpm = Math.min(c.rpm, x.rpmCap);
+    if (B.cycle) c.cycle = B.cycle / up(m, 'rpm');
+    c.interval = c.cycle ? c.cycle : 60 / c.rpm;
+    c.auto = x.auto !== undefined ? x.auto : B.auto; c.burst = x.burst | 0;
+    c.mode = c.burst ? 'BURST' : (B.mode === 'PUMP' || B.mode === 'BOLT' || B.mode === 'MELEE') ? B.mode : (c.auto ? 'AUTO' : 'SEMI');
+    /* capacity */
+    c.mag = c.magMax = Math.max(1, Math.round(B.mag * up(m, 'mag'))); c.reserve = c.reserveMax = Math.round(B.reserve * (1 + x.reserve));
+    /* accuracy: hip (hip / moving / airborne) and ADS (ads / bloom) are separate stats */
+    const hf = dn(m, 'hip'), af = dn(m, 'ads'), bf = (hf + af) / 2, S = B.spread;
+    c.spread = { hip: S.hip * hf, move: S.move * hf, air: S.air * hf, ads: S.ads * af, shot: S.shot * bf, max: S.max * bf, recover: S.recover };
+    if (x.slug) { c.spread.hip = S.hip * 0.5 * hf; c.spread.ads = Math.max(0.05, S.ads * 0.12 * af); c.spread.move = S.move * 0.6 * hf; }
+    /* recoil: vertical / horizontal pattern scaling + recovery (recoil control) */
+    const vf = dn(m, 'vr'), rf = dn(m, 'hr'); c.recoil = B.recoil.map((p) => [p[0] * vf * (x.slug ? 1.15 : 1), p[1] * rf]);
+    c.rc = up(m, 'rc'); c.kickZ = B.kickZ * (0.55 + 0.45 * vf); c.kickRot = B.kickRot * (0.55 + 0.45 * vf);
+    /* handling */
+    c.adsTime = B.adsTime / up(m, 'adst'); c.draw = B.draw / (1 + x.draw / 100); c.sprintOutMul = 1 / up(m, 'spf');
+    const rl = up(m, 'rld'); c.reload = { tac: B.reload.tac / rl, empty: B.reload.empty / rl, rld: B.reload.rld, k: 1 / rl };
+    /* Sleight of Hand on the M4 swaps the casual strip-stow-fetch-seat for a TACTICAL swap (both mags in the support hand): ~20% quicker on top of the perk's own bonus. Drums can't be juggled, so they keep the standard reload. */
+    c.tacRld = wid === 'm4' && list.indexOf('pk_sleight') >= 0 && list.indexOf('mg_drum') < 0 && list.indexOf('mg_twin') < 0 && !!B.reload.rldS;
+    if (c.tacRld) { c.reload.tac *= 0.8; c.reload.empty *= 0.8; c.reload.k *= 0.8; c.reload.rld = B.reload.rldS; }
+    c.moveMul = B.moveMul * up(m, 'mov'); c.adsMoveMul = B.adsMoveMul * up(m, 'mov');
+    c.sway = dn(m, 'sway'); c.stab = dn(m, 'stab');
+    /* optics + ballistics + sound */
+    c.zoom = B.zoom * x.zoom; c.scope = x.scope !== undefined ? x.scope : !!B.scope;
+    c.velocity = B.velocity * up(m, 'vel'); c.baseVelocity = B.velocity;
+    c.noise = x.noise; c.flash = x.flash; c.snd = x.snd; c.burn = x.burn; c.tracer = x.tracer; c.laser = x.laser; c.light = x.light;
+    c.stats = B.stats; c.akimbo = !!x.akimbo;
+    _cache.set(key, c); return c;
+  }
+
+  /* ---- display values for the 16 stats: raw number, label text and a 0-100 bar score (bigger bar = better, always) ---- */
+  function rows(cfg) {
+    const B = cfg.base || cfg, r = [], v = (a) => a;
+    const avg = (p, i) => { let s = 0; const n = Math.min(p.length, 12); for (let k = 0; k < n; k++) s += Math.abs(p[k][i]); return s / n; };
+    const sp = cfg.spread, rc = cfg.recoil;
+    const add = (k, raw, text, score) => r.push({ k, name: STAT[k].name, raw, text, score: clamp(score, 0, 100) });
+    add('dmg', cfg.dmg[0] * cfg.pellets, Math.round(cfg.dmg[0]) + (cfg.pellets > 1 ? ' x' + cfg.pellets : ''), cfg.dmg[0] * cfg.pellets * (cfg.pellets > 1 ? 0.9 : 1));
+    add('rpm', cfg.cycle ? 60 / cfg.cycle : cfg.rpm, Math.round(cfg.cycle ? 60 / cfg.cycle : cfg.rpm) + '', (cfg.cycle ? 60 / cfg.cycle : cfg.rpm) / 9);
+    add('vel', cfg.velocity, Math.round(cfg.velocity) + '', cfg.velocity / 11);
+    add('rng', cfg.range[1], Math.round(cfg.range[1]) + ' m', cfg.range[1] * 1.1);
+    add('rc', cfg.rc * 100, Math.round(cfg.rc * 100) + '%', 50 * cfg.rc);
+    add('hr', avg(rc, 1), avg(rc, 1).toFixed(2) + '\u00b0', 100 - avg(rc, 1) * 130);
+    add('vr', avg(rc, 0), avg(rc, 0).toFixed(2) + '\u00b0', 100 - avg(rc, 0) * 20);
+    add('hip', sp.hip, sp.hip.toFixed(2) + '\u00b0', 100 - sp.hip * 20 - sp.move * 3);
+    add('ads', sp.ads, sp.ads.toFixed(2) + '\u00b0', 100 - 40 * Math.sqrt(sp.ads));
+    add('adst', cfg.adsTime * 1000, Math.round(cfg.adsTime * 1000) + '', 120 - 200 * cfg.adsTime);
+    add('spf', 200 * cfg.sprintOutMul, Math.round(200 * cfg.sprintOutMul) + '', 100 - 250 * 0.2 * cfg.sprintOutMul);
+    add('rld', cfg.reload.tac, cfg.reload.tac.toFixed(2) + ' s', 100 - cfg.reload.tac * 15);
+    add('mag', cfg.magMax, cfg.magMax + '', cfg.magMax * 2.2);
+    add('mov', cfg.moveMul * 100, Math.round(cfg.moveMul * 100) + '%', (cfg.moveMul - 0.7) * 250);
+    add('sway', cfg.sway, Math.round(cfg.sway * 100) + '%', 100 - cfg.sway * 50);
+    add('stab', cfg.stab, Math.round(100 / cfg.stab) + '%', 50 / cfg.stab);
+    return r;
+  }
+  /* lower-is-better raw values flip the sign of a "change" so that + always means better in the UI */
+  const LOWER = { hr: 1, vr: 1, hip: 1, ads: 1, adst: 1, spf: 1, rld: 1, sway: 1, stab: 0 };
+  function compare(wid, cur, next) {   /* rows of the NEXT build with the delta against CUR (score points and raw percent, + = better) */
+    const a = rows(buildCfg(wid, cur)), b = rows(buildCfg(wid, next)), out = [];
+    for (let i = 0; i < b.length; i++) {
+      const A = a[i], Bn = b[i], k = Bn.k; let pct = A.raw ? (Bn.raw - A.raw) / Math.abs(A.raw) * 100 : 0; if (LOWER[k]) pct = -pct;
+      out.push({ k, name: Bn.name, text: Bn.text, score: Bn.score, prev: A.score, ds: Bn.score - A.score, pct, prevText: A.text });
+    }
+    return out;
+  }
+  /* human readable lines for one attachment: advantages / disadvantages straight from its data */
+  const MODTXT = { dmg: 'Damage', rpm: 'Fire rate', vel: 'Bullet velocity', rng: 'Effective range', rc: 'Recoil control', hr: 'Horizontal recoil', vr: 'Vertical recoil', hip: 'Hip-fire accuracy', ads: 'ADS accuracy', adst: 'ADS speed', spf: 'Sprint-to-fire speed', rld: 'Reload speed', mag: 'Magazine capacity', mov: 'Movement speed', sway: 'Weapon sway', stab: 'Aim stability' };
+  function describe(a, wid) {
+    const pros = [], cons = [], notes = [], m = a.mods, x = a.x;
+    for (const k of STATS.map((s) => s.k)) { const v = m[k]; if (!v) continue; const t = MODTXT[k] + ' ' + (k === 'hr' || k === 'vr' || k === 'sway' ? (v > 0 ? 'reduced ' : 'increased ') + Math.abs(v) + '%' : (v > 0 ? '+' : '\u2212') + Math.abs(v) + '%'); (v > 0 ? pros : cons).push({ k, v, t }); }
+    if (x.noise !== undefined) (x.noise < 1 ? pros : cons).push({ k: 'noise', v: 1 - x.noise, t: x.noise < 1 ? 'Firing noise \u2212' + Math.round((1 - x.noise) * 100) + '% (bots hear less)' : 'Firing noise +' + Math.round((x.noise - 1) * 100) + '% (bots hear more)' });
+    if (x.flash !== undefined && x.flash !== 1) (x.flash < 1 ? pros : cons).push({ k: 'flash', v: 1 - x.flash, t: x.flash <= 0.01 ? 'Muzzle flash eliminated' : x.flash < 1 ? 'Muzzle flash \u2212' + Math.round((1 - x.flash) * 100) + '%' : 'Muzzle flash +' + Math.round((x.flash - 1) * 100) + '%' });
+    if (x.zoom && x.zoom !== 1) notes.push('ADS magnification x' + x.zoom.toFixed(2) + (x.scope ? ' with scope picture' : ''));
+    if (x.burst) notes.push('Fire mode: ' + x.burst + '-round burst'); if (x.auto === true) notes.push('Fire mode: full-auto'); if (x.auto === false) notes.push('Fire mode: semi-auto only');
+    if (x.slug) notes.push('Fires a single slug (no pellet spread)'); if (x.burn) notes.push('Sets targets on fire: ' + x.burn + ' damage/s for 3 s');
+    if (x.reserve) notes.push('Reserve ammo +' + Math.round(x.reserve * 100) + '%'); if (x.draw) notes.push('Weapon draw speed +' + x.draw + '%'); if (x.head) notes.push('Headshot multiplier +' + x.head.toFixed(2));
+    if (x.laser) notes.push((x.laser === 'green' ? 'Green' : 'Red') + ' laser beam visible on the weapon'); if (x.light) notes.push('Weapon light'); if (x.akimbo) notes.push('Dual-wield: LEFT click fires the left pistol, RIGHT click fires the right pistol (no aiming down sights). Each gun has its own magazine.');
+    return { pros, cons, notes };
+  }
+
+  /* ---------------------------------------------------------------- persistence: one build per weapon + 5 named presets per weapon */
+  let S = { builds: {}, presets: {} }, loaded = false; const subs = [];
+  function load() {
+    if (loaded) return; loaded = true;
+    try { const j = JSON.parse(localStorage.getItem(KEY) || 'null'); if (j && typeof j === 'object') { S.builds = j.builds || {}; S.presets = j.presets || {}; } } catch (e) { }
+    for (const w in S.builds) { if (!isWeapon(w)) delete S.builds[w]; else S.builds[w] = normalize(w, S.builds[w]); }
+  }
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { } }
+  function emit(wid) { for (const f of subs) { try { f(wid); } catch (e) { console.warn('gunsmith listener', e); } } }
+  let FORCE = null;   /* Gunfight: a { weaponId: [attachment ids] } map that replaces the saved builds while the mode is running (null = use the player's saved builds) */
+  function setForce(m) { FORCE = m || null; }
+  function get(wid) { load(); if (FORCE) return (FORCE[wid] || []).slice(); return (S.builds[wid] || []).slice(); }
+  function set(wid, list) { load(); if (!isWeapon(wid)) return []; const n = normalize(wid, list); if (n.length) S.builds[wid] = n; else delete S.builds[wid]; save(); emit(wid); return n.slice(); }
+  function equip(wid, id) { const n = withEquip(wid, get(wid), id); if (!n) return null; return set(wid, n); }
+  function unequip(wid, idOrCat) { const cur = get(wid); return set(wid, cur.filter((x) => x !== idOrCat && ATT[x].cat !== idOrCat)); }
+  function reset(wid) { return set(wid, []); }
+  function count(wid) { return get(wid).length; }
+  function cfgFor(wid, list) { return buildCfg(wid, list || get(wid)); }
+  /* a fresh weapon state carrying this weapon's saved build (the player's spawn / loadout path uses this; bots use plain Weapons.newState) */
+  function stateFor(wid, o) { const zm = (() => { try { return Game.settings.mode === 'zombies'; } catch (e) { return false; } })(); const l = zm ? [] : get(wid); if (!l.length) return Weapons.newState(wid, o); const c = buildCfg(wid, l); return Weapons.newState(wid, Object.assign({}, o, { cfg: c })); }
+  function presets(wid) { load(); const p = S.presets[wid] || []; const out = []; for (let i = 0; i < 5; i++) out.push(p[i] ? { name: p[i].name, att: normalize(wid, p[i].att) } : null); return out; }
+  function savePreset(wid, i, name) { load(); const p = S.presets[wid] || (S.presets[wid] = []); const cur = get(wid); p[i] = { name: String(name || ('BUILD ' + (i + 1))).slice(0, 18), att: cur }; save(); return p[i]; }
+  function loadPreset(wid, i) { const p = presets(wid)[i]; if (!p) return null; return set(wid, p.att); }
+  function deletePreset(wid, i) { load(); const p = S.presets[wid]; if (p) { p[i] = null; save(); } }
+  function onChange(f) { subs.push(f); return () => { const i = subs.indexOf(f); if (i >= 0) subs.splice(i, 1); }; }
+  function weapons() { return Object.keys(WT).filter((w) => Weapons.CFG[w]); }
+
+  return { MAX, CATS, CAT, STATS, STAT, ATT, ORDER, WT, MODTXT, isWeapon, fitsWeapon, listFor, catsFor, nameFor, normalize, check, withEquip, buildCfg, cfgFor, rows, compare, describe, aggregate,
+    get, set, equip, unequip, reset, count, stateFor, presets, savePreset, loadPreset, deletePreset, onChange, weapons, setForce };
+})();
+
+/* ===== 45_fx.js ===== */
+/* ============================================================================
+   45_fx.js — pooled visual effects: GPU point-sprite particles (normal + additive), view-facing tracers,
+   instanced bullet decals, shell casings (instanced, simple physics), world-space muzzle flashes.
+   No per-frame allocations; nothing here creates lights (avoids shader recompiles).
+   ============================================================================ */
+const FX = (function () {
+  'use strict';
+  const V3 = THREE.Vector3;
+  const rnd = Math.random, rr = (a, b) => a + (b - a) * Math.random();
+  let root = null, world = null, viewK = 700, camPos = new V3(), quality = 1;
+  const ST = 16; // particle stride: x y z vx vy vz life max s0 s1 r g b a grav drag
+
+  /* ------------------------------------------------------------ point-sprite particles */
+  function makeSys(cap, additive) {
+    const geo = new THREE.BufferGeometry(), pos = new Float32Array(cap * 3), col = new Float32Array(cap * 4), siz = new Float32Array(cap);
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3).setUsage(THREE.DynamicDrawUsage));
+    geo.setAttribute('aColor', new THREE.BufferAttribute(col, 4).setUsage(THREE.DynamicDrawUsage));
+    geo.setAttribute('aSize', new THREE.BufferAttribute(siz, 1).setUsage(THREE.DynamicDrawUsage));
+    geo.setDrawRange(0, 0);
+    const mat = new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false, fog: false, blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
+      uniforms: { uK: { value: 700 }, uLin: { value: 0 } },
