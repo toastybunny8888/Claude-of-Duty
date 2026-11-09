@@ -8736,6 +8736,34 @@ const SoldierModel = (function () {
   }
   function prewarmZombies() { for (let i = 0; i < ZVN; i++) { const key = 1000 + ZV0 + i; if (!GEO[key]) GEO[key] = buildGeos(makeStyle(1, ZV0 + i)); } zMats(); }
 
+  /* ---------------------------------------------------------------- static corpse rig (map props: Dead Air gore pass)
+     The zombie geometry + material on the soldier skeleton, with no weapons, animation or glowing eyes. Geometry is SHARED with the live zombies (same GEO cache), so a corpse only costs its meshes.
+     vi = zombie look (0..ZVN-1). Rest pose: standing, arms down, faces -z. Pose it by rotating the groups in b.* then root.updateMatrixWorld(true).
+     Returns { root, b: { body, hips, spine, chest, up, head, jaw, ua[], fa[], th[], sh[], ft[] }, m: { the same names -> Mesh, plus eyes }, st, k } */
+  const DEADEYE = {};
+  function corpseRig(vi) {
+    vi = (((vi | 0) % ZVN) + ZVN) % ZVN; const variant = ZV0 + vi, key = 1000 + variant, st = makeStyle(1, variant), G = GEO[key] || (GEO[key] = buildGeos(st)), k = st.bulk, mat = zMats().body;
+    const grp = (parent, x, y, z) => { const g = new THREE.Group(); g.rotation.order = 'YXZ'; g.position.set(x, y, z); if (parent) parent.add(g); return g; };
+    const mk = (geo, parent) => { const m = new THREE.Mesh(geo, mat); m.castShadow = false; m.receiveShadow = true; parent.add(m); return m; };
+    const root = new THREE.Group(); root.name = 'corpse'; const body = grp(root, 0, 0, 0); body.scale.setScalar(st.scale);
+    const hips = grp(body, 0, 0.95, 0), spine = grp(hips, 0, 0.07, 0), chest = grp(spine, 0, 0.16, 0), up = grp(chest, 0, 0.27, 0), head = grp(up, 0, 0.05, 0), jaw = grp(head, ZJAW[0], ZJAW[1], ZJAW[2]);
+    const b = { body: body, hips: hips, spine: spine, chest: chest, up: up, head: head, jaw: jaw, ua: [], fa: [], th: [], sh: [], ft: [] };
+    const m = { hips: mk(G.hips, hips), spine: mk(G.spine, spine), chest: mk(G.chest, chest), head: mk(G.head, head), jaw: mk(G.jaw, jaw), ua: [], fa: [], th: [], sh: [], ft: [] };
+    for (let i = 0; i < 2; i++) {
+      const sx = i ? 1 : -1;
+      b.ua[i] = grp(up, sx * 0.19 * k, 0, 0); m.ua[i] = mk(G.ua[i], b.ua[i]); b.fa[i] = grp(b.ua[i], 0, -LA1, 0); m.fa[i] = mk(G.fa[i], b.fa[i]);
+      b.th[i] = grp(hips, sx * 0.095 * k, -0.05, 0); m.th[i] = mk(G.th[i], b.th[i]); b.sh[i] = grp(b.th[i], 0, -LT1, 0); m.sh[i] = mk(G.sh[i], b.sh[i]); b.ft[i] = grp(b.sh[i], 0, -LT2, 0); m.ft[i] = mk(G.ft[i], b.ft[i]);
+    }
+    /* dull clouded eyes (the live zombies have glowing ones); a missing-eye look keeps its empty socket */
+    const E = DEADEYE[vi] || (DEADEYE[vi] = (function () {
+      const B = new U.Builder(), L = st.zl, noR = L.wounds.indexOf('eye') >= 0;
+      for (const sx of [-1, 1]) { if (noR && sx > 0) continue; sph(B, 0.0135, 0.0135, 0.009, sx * 0.036 * k, 0.157, -0.08, 0xb9b59f); sph(B, 0.0058, 0.0058, 0.0042, sx * 0.0365 * k, 0.1568, -0.0876, 0x5f5c4e); }
+      const g0 = B.build({ m: getMats().body, _default: getMats().body }), mesh = g0.children[0]; return mesh ? mesh.geometry : new THREE.BufferGeometry();
+    })());
+    m.eyes = mk(E, head);
+    return { root: root, b: b, m: m, st: st, k: k };
+  }
+
   /* ---------------------------------------------------------------- zombie animation (called from step) */
   function zAtk(s) { const t = s.zAtkT; if (t > 1.3) return { wind: 0, strike: 0 }; return { wind: ss(0, 0.28, t) * (1 - ss(0.3, 0.38, t)), strike: ss(0.3, 0.4, t) * (1 - ss(0.45, 0.95, t)) }; }
   function zHips(s, B, dt, v, gaitW) {
@@ -10171,7 +10199,7 @@ const SoldierModel = (function () {
   const SKIN_IDS = Object.keys(SPECIAL).map(Number);
   /* bots: ~75% roll a random mil-sim / night-ops skin, the rest keep their random field-operator look */
   const randomSkin = (team, v) => isZV(v) ? v : Math.random() < 0.75 ? SKIN_IDS[Math.floor(Math.random() * SKIN_IDS.length)] : v;
-  return { create, prewarmZombies, ZV0, ZVN, randomSkin, armKit, playerKit, armGeos, operators: OPS, getOperator: () => curOp, setOperator, createOpts: (o) => ({ team: o.team, variant: fixV(o.team, o.variant) }), onOperator: (f) => { LSN.push(f); }, tuning: DEATH_TUNING, corpseTap: corpseTap, corpses: RD_ALL, active: RD_ACTIVE, RD_C: RD_C, RD_R: RD_R };
+  return { create, prewarmZombies, corpseRig, ZV0, ZVN, randomSkin, armKit, playerKit, armGeos, operators: OPS, getOperator: () => curOp, setOperator, createOpts: (o) => ({ team: o.team, variant: fixV(o.team, o.variant) }), onOperator: (f) => { LSN.push(f); }, tuning: DEATH_TUNING, corpseTap: corpseTap, corpses: RD_ALL, active: RD_ACTIVE, RD_C: RD_C, RD_R: RD_R };
 })();
 
 /* ===== 56_viewmodel.js ===== */
@@ -15772,7 +15800,7 @@ const DeadAirMap = (function () {
 
       /* ---------------------------------------------------------------- batched geometry: everything below is baked into 2 meshes (matte cloth/skin + glossy wet blood/viscera) */
       const MG = {}, WG = {};
-      const BOX = new THREE.BoxGeometry(1, 1, 1), CYL = new THREE.CylinderGeometry(0.5, 0.5, 1, 6, 1), CYT = new THREE.CylinderGeometry(0.5, 0.36, 1, 6, 1), SPH = new THREE.SphereGeometry(0.5, 8, 5);
+      const BOX = new THREE.BoxGeometry(1, 1, 1), CYL = new THREE.CylinderGeometry(0.5, 0.5, 1, 8, 1), CYT = new THREE.CylinderGeometry(0.5, 0.36, 1, 8, 1), SPH = new THREE.SphereGeometry(0.5, 12, 8);   /* smooth blobs / tubes: all the viscera and blood pools are built from these */
       const _m = new M4(), _q = new QT(), _s = new V3(), _p = new V3(), _e = new EU(), _c = new CL(), _d = new V3();
       function emit(proto, m4, color, wet, jit) {
         const g = proto.index ? proto.toNonIndexed() : proto.clone(); g.applyMatrix4(m4);
@@ -15863,7 +15891,7 @@ const DeadAirMap = (function () {
       /* ---------------------------------------------------------------- the corpse
          pose: 'supine' | 'prone' | 'sit' (on a chair / sofa, faces local +z) | 'wall' (slumped on the floor against a wall behind it, faces +z)
          flags: open (belly torn open + entrails), headless, chewed, headshot, noLegs, noLegL, noLegR, noArmL, noArmR, burned, bone, reach, floorY, pool (size, 0 = none) */
-      function body(bx, by, bz, yaw, o) {
+      function bodyOld(bx, by, bz, yaw, o) {   /* the old primitive-built body: fallback only (see HIGH-DETAIL CORPSES below) */
         o = o || {}; const pose = o.pose || 'supine', out = o.out || pick(OUT), skin = o.burned ? 0x1a1410 : (o.skin !== undefined ? o.skin : pick(SKIN)), hair = o.burned ? 0x0a0806 : pick(HAIR), J = skeleton(pose, o);
         const M = new M4().makeTranslation(bx, by, bz).multiply(new M4().makeRotationY(yaw)), top = o.burned ? 0x1c1612 : out.top, bot = o.burned ? 0x161210 : out.bot, shoe = out.shoe, sk = new CL(skin);
         const fy = o.floorY !== undefined ? o.floorY : by, wp = (p) => p.clone().applyMatrix4(M);
@@ -15913,15 +15941,15 @@ const DeadAirMap = (function () {
         return { w: cw, J: J, M: M };
       }
 
-      function severedHead(x, y, z, yaw, o) {
-        o = o || {}; const M = new M4().makeTranslation(x, y, z).multiply(new M4().makeRotationY(yaw)), sk = pick(SKIN), hr = pick(HAIR);
+      function severedHeadOld(x, y, z, yaw, o) {
+        o = o || {}; const M =new M4().makeTranslation(x, y, z).multiply(new M4().makeRotationY(yaw)), sk = pick(SKIN), hr = pick(HAIR);
         drawHead(M, v3(0, 0.1, 0), v3(rr(-0.4, 0.4), 0.8, rr(-0.5, 0.5)), v3(0, 0, 1), { mouth: true, faceBlood: true, chewed: o.chewed }, sk, hr, false);
         part(M, SPH, v3(0, 0.03, -0.05), [0, 0, 0], [0.13, 0.08, 0.13], BLD, true); part(M, CYL, v3(0, 0.02, -0.08), [PI / 2, 0, 0], [0.04, 0.05, 0.04], BONE, false);
         if (o.floor !== false) { pool(x, z, 0.9, o.fy || 0); splat(x + 0.3, z - 0.2, 0.6, o.fy || 0); }
         addFlies(x, (o.fy || 0) + 0.25, z, 4);
       }
-      function limbPiece(x, y, z, yaw, kind) {
-        const M = new M4().makeTranslation(x, y, z).multiply(new M4().makeRotationY(yaw)), sk = pick(SKIN), cl = pick(OUT);
+      function limbPieceOld(x, y, z, yaw, kind) {
+        const M =new M4().makeTranslation(x, y, z).multiply(new M4().makeRotationY(yaw)), sk = pick(SKIN), cl = pick(OUT);
         if (kind === 'arm') { seg(M, v3(0, 0.05, 0), v3(0.55, 0.05, 0.1), 0.09, 0.09, CYT, cl.top, false); seg(M, v3(0.55, 0.05, 0.1), v3(0.85, 0.04, 0.0), 0.075, 0.075, CYL, sk, false); seg(M, v3(0.84, 0.04, 0.0), v3(0.98, 0.035, -0.04), 0.085, 0.04, SPH, sk, false); part(M, SPH, v3(-0.01, 0.05, 0), [0, 0, 0], [0.12, 0.11, 0.11], BLD, true); part(M, SPH, v3(-0.02, 0.05, 0), [0, 0, 0], [0.04, 0.04, 0.04], BONE, false); }
         else { seg(M, v3(0, 0.08, 0), v3(0.5, 0.08, 0.05), 0.16, 0.16, CYT, cl.bot, false); seg(M, v3(0.5, 0.08, 0.05), v3(0.95, 0.06, -0.1), 0.11, 0.11, CYL, cl.bot, false); seg(M, v3(0.93, 0.06, -0.1), v3(1.12, 0.05, -0.2), 0.1, 0.07, BOX, cl.shoe, false); part(M, SPH, v3(-0.01, 0.08, 0), [0, 0, 0], [0.18, 0.16, 0.16], BLD, true); part(M, CYL, v3(-0.04, 0.08, 0), [0, 0, PI / 2], [0.045, 0.1, 0.045], BONE, false); }
         pool(x + 0.3, z, 1.0, y); addFlies(x + 0.4, y + 0.25, z, 3);
@@ -15933,17 +15961,163 @@ const DeadAirMap = (function () {
         const L = [[0, 0.07, -0.82, 0.3, 0.14, 0.24], [0, 0.1, -0.45, 0.3, 0.2, 0.56], [0, 0.125, -0.05, 0.37, 0.25, 0.3], [0, 0.135, 0.3, 0.44, 0.27, 0.42], [0, 0.12, 0.56, 0.5, 0.22, 0.12]];
         for (const l of L) part(M, BOX, v3(l[0], l[1], l[2]), [0, 0, 0], [l[3], l[4], l[5]], col, wet, 0.05); ball(M, v3(0, 0.13, 0.8), 0.23, 0.22, 0.27, col, wet, 0.05);
         for (let i = 0, n = 5 + rnd(4); i < n; i++) flat(M, v3(rr(-0.12, 0.12), 0.265, rr(-0.5, 0.7)), v3(0, 1, 0), rr(0.2, 0.42), rr(0.2, 0.4), 0.012, pick([BDK, BLD]), true);
-        if (o.arm) { seg(M, v3(0.22, 0.12, 0.55), v3(0.38, 0.07, 0.4), 0.09, 0.09, CYT, 0xb0a08a, false); seg(M, v3(0.38, 0.07, 0.4), v3(0.5, 0.045, 0.12), 0.07, 0.07, CYL, 0xb0a08a, false); seg(M, v3(0.5, 0.045, 0.12), v3(0.53, 0.035, -0.02), 0.08, 0.04, SPH, 0xb0a08a, false); flat(M, v3(0.46, 0.05, 0.18), v3(0, 1, 0), 0.1, 0.2, 0.01, BLD, true); }
-        if (o.feet) { for (const s of [-1, 1]) { part(M, BOX, v3(s * 0.08, 0.05, -1.02), [0, 0, 0], [0.09, 0.07, 0.2], 0xa89478, false); } part(M, BOX, v3(0.1, 0.09, -1.1), [0, 0.3, 0], [0.05, 0.005, 0.08], 0xe8e4d4, false); }
+        if (o.arm) { if (HAVE_RIG) sheetLimb(x, y, z, yaw, 'arm', v3(0.22, 0.1, 0.55), v3(0.5, -0.3, -0.8), v3(0.4, -0.12, -0.9), 1); else { seg(M, v3(0.22, 0.12, 0.55), v3(0.38, 0.07, 0.4), 0.09, 0.09, CYT, 0xb0a08a, false); seg(M, v3(0.38, 0.07, 0.4), v3(0.5, 0.045, 0.12), 0.07, 0.07, CYL, 0xb0a08a, false); seg(M, v3(0.5, 0.045, 0.12), v3(0.53, 0.035, -0.02), 0.08, 0.04, SPH, 0xb0a08a, false); } flat(M, v3(0.46, 0.05, 0.18), v3(0, 1, 0), 0.1, 0.2, 0.01, BLD, true); }
+        if (o.feet) { for (const s of [-1, 1]) { if (HAVE_RIG) sheetLimb(x, y, z, yaw, 'leg', v3(s * 0.08, 0.075, -0.5), v3(s * 0.04, -0.02, -1), null, s < 0 ? 0 : 1); else part(M, BOX, v3(s * 0.08, 0.05, -1.02), [0, 0, 0], [0.09, 0.07, 0.2], 0xa89478, false); } part(M, BOX, v3(0.1, 0.09, -1.1), [0, 0.3, 0], [0.05, 0.005, 0.08], 0xe8e4d4, false); }
         const wpx = new V3(x, 0, z).add(v3(Math.sin(yaw), 0, Math.cos(yaw)).multiplyScalar(0));
         if (o.seep) { const sd = o.seep, ex = x + Math.cos(yaw) * 0.45 * sd, ez = z - Math.sin(yaw) * 0.45 * sd; pool(ex, ez, 1.1, y > 0.01 ? 0 : 0); }
         addFlies(x, y + 0.3, z, 4);
       }
 
+      /* ======================================================== HIGH-DETAIL CORPSES
+         The dead are the zombie model itself (SoldierModel.corpseRig: sculpted skull-face, lofted clothes, wounds, fingers, textured rotting skin), posed by hand.
+         The geometry is SHARED with the live zombies, so a corpse only costs its ~16 meshes (culled when off screen). body / severedHead / limbPiece / cocoon keep their old
+         signatures and flags; the old primitive versions above are the fallback if the rig is missing. Extra gore (torn belly, stumps, chewed face...) is baked on top. */
+      const HAVE_RIG = typeof SoldierModel !== 'undefined' && typeof SoldierModel.corpseRig === 'function';
+      const LOOKS = [[0, 8], [4, 5], [1, 9], [3, 8], [2, 5], [3, 0], [6, 9]];   /* OUT[i] -> the zombie looks that wear similar clothes (engineer, camera op, janitor, DJ, exec, host, guard, secretary, producer) */
+      const DOWN = new V3(0, -1, 0), _qa = new QT(), _va = new V3(), _vb = new V3(), _bx = new THREE.Box3(), _bt = new THREE.Box3(), ZF = new V3(0, 0, -1);
+      /* point a limb group's -y axis along dir (dir is in the corpse's own frame: the rig is not placed yet) */
+      function aim(g, d) { g.parent.updateWorldMatrix(true, false); g.parent.getWorldQuaternion(_qa); _va.copy(d).normalize().applyQuaternion(_qa.invert()); g.quaternion.setFromUnitVectors(DOWN, _va); g.updateWorldMatrix(false, false); }
+      const sideOf = (g, ref) => (g.getWorldPosition(_va).x < ref.getWorldPosition(_vb).x ? -1 : 1);
+      const rigMeshes = (rig) => { const m = rig.m, a = [m.hips, m.spine, m.chest, m.head, m.jaw, m.eyes]; for (let i = 0; i < 2; i++) a.push(m.ua[i], m.fa[i], m.th[i], m.sh[i], m.ft[i]); return a; };
+      function meshBox(list, box) { box.makeEmpty(); for (const m of list) { if (!m.visible) continue; const g = m.geometry; if (!g.boundingBox) g.computeBoundingBox(); _bt.copy(g.boundingBox).applyMatrix4(m.matrixWorld); box.union(_bt); } return box; }
+      const freeze = (g) => g.traverse((o) => { o.matrixAutoUpdate = false; });
+
+      /* pose = 'supine' | 'prone' | 'sit' | 'wall' | 'hang'. Directions are written in the corpse's frame: y up, lying bodies have the head toward +z, sitting / hanging bodies face +z. */
+      function poseRig(rig, pose, o) {
+        const b = rig.b, root = rig.root, lie = pose === 'supine' || pose === 'prone';
+        root.rotation.order = 'YXZ'; root.position.set(0, 0, 0);
+        if (pose === 'supine') root.rotation.set(PI / 2, 0, 0); else if (pose === 'prone') root.rotation.set(-PI / 2, PI, 0); else root.rotation.set(0, PI, 0);
+        const lean = o.lean !== undefined ? o.lean : pose === 'sit' ? rr(0.15, 0.75) : pose === 'hang' ? rr(0.0, 0.12) : rr(0.0, 0.3);
+        if (lie) { b.hips.rotation.set(rr(-0.05, 0.05), rr(-0.15, 0.15), rr(-0.1, 0.1)); b.spine.rotation.set(rr(-0.05, 0.08), rr(-0.3, 0.3), rr(-0.12, 0.12)); b.chest.rotation.set(rr(-0.05, 0.08), rr(-0.3, 0.3), rr(-0.12, 0.12)); }
+        else { b.hips.rotation.set(0, rr(-0.1, 0.1), rr(-0.08, 0.08)); b.spine.rotation.set(-lean * 0.45, rr(-0.15, 0.15), rr(-0.22, 0.22)); b.chest.rotation.set(-lean * 0.55, rr(-0.2, 0.2), rr(-0.18, 0.18)); }
+        if (pose === 'supine') b.head.rotation.set(rr(0.0, 0.4), rr(-1.0, 1.0), rr(-0.35, 0.35));
+        else if (pose === 'prone') { const sd = R() < 0.5 ? -1 : 1; b.head.rotation.set(rr(-0.1, 0.25), sd * rr(0.8, 1.5), sd * rr(0.0, 0.3)); }
+        else b.head.rotation.set(-rr(0.25, 0.95), rr(-0.6, 0.6), rr(-0.45, 0.45));
+        b.jaw.rotation.x = -(o.mouth ? rr(0.6, 0.9) : rr(0.15, 0.85));
+        root.updateMatrixWorld(true);
+        const reachArm = rnd(2), bentLeg = R() < 0.25 ? rnd(2) : -1;   /* at most one bent leg on a prone body */
+        for (let i = 0; i < 2; i++) {
+          const sw = sideOf(b.ua[i], b.hips), u = (x, y, z) => v3(x * sw, y, z); let ud, fd, td, sd, fx = 0;
+          if (pose === 'supine') {
+            const up = R() < 0.18, bent = R() < 0.35;
+            ud = up ? u(rr(0.3, 0.8), rr(0.1, 0.5), rr(0.5, 1.0)) : u(rr(0.25, 0.85), -rr(0.05, 0.3), -rr(0.4, 1.0)); fd = up ? u(rr(-0.2, 0.6), rr(0.0, 0.4), rr(0.5, 1.0)) : u(rr(-0.2, 0.9), -rr(0.0, 0.25), rr(-0.7, 0.9));
+            td = bent ? u(rr(0.15, 0.45), rr(0.5, 0.95), -rr(0.25, 0.55)) : u(rr(0.05, 0.35), -rr(0, 0.06), -1); sd = bent ? u(rr(0.0, 0.35), -rr(0.6, 1.0), -rr(0.1, 0.5)) : u(rr(0.0, 0.3), -rr(0, 0.08), -1); fx = rr(-0.5, 0.4);
+          } else if (pose === 'prone') {
+            if (o.reach) { if (i === reachArm) { ud = u(rr(0.15, 0.4), -rr(0, 0.12), 1); fd = u(rr(0.0, 0.3), -rr(0, 0.15), 1); } else { ud = u(rr(0.6, 0.9), -0.05, rr(0.2, 0.6)); fd = u(-rr(0.1, 0.5), -0.05, rr(0.5, 1.0)); } }
+            else if (R() < 0.35) { ud = u(rr(0.15, 0.6), -0.05, rr(0.7, 1.0)); fd = u(rr(0.0, 0.5), -0.05, rr(0.5, 1.0)); }
+            else { ud = u(rr(0.45, 0.9), -0.05, -rr(0.2, 0.7)); fd = u(rr(0.2, 0.8), -0.1, rr(-0.8, 0.2)); }
+            if (i === bentLeg) { td = u(rr(0.1, 0.3), -0.1, -1); sd = u(rr(0.1, 0.4), rr(0.5, 0.9), -rr(0.3, 0.8)); } else { td = u(rr(0.05, 0.3), 0, -1); sd = u(rr(0.0, 0.25), rr(0, 0.15), -1); } fx = -rr(0.8, 1.4);
+          } else if (pose === 'sit') {
+            td = u(rr(0.08, 0.3), -rr(0.0, 0.08), 1); sd = u(rr(0.0, 0.25), -1, rr(-0.35, 0.3)); fx = rr(-0.2, 0.2);
+            if (R() < 0.5) { ud = u(rr(0.1, 0.3), -1, rr(0.1, 0.4)); fd = u(-rr(0.1, 0.5), -0.35, 1); } else { ud = u(rr(0.1, 0.4), -1, rr(-0.1, 0.3)); fd = u(rr(0.0, 0.2), -1, rr(0.0, 0.4)); }
+          } else if (pose === 'wall') {
+            if (R() < 0.35) { td = u(rr(0.1, 0.3), rr(0.5, 0.8), 0.7); sd = u(rr(0.0, 0.3), -rr(0.5, 0.9), rr(0.2, 0.6)); } else { td = u(rr(0.1, 0.35), rr(-0.02, 0.1), 1); sd = u(rr(0.1, 0.4), rr(-0.05, 0.1), 1); }
+            ud = u(rr(0.2, 0.5), -1, rr(0.15, 0.5)); fd = u(rr(0.2, 0.6), -0.7, rr(0.4, 0.9)); fx = rr(-0.2, 0.3);
+          } else {   /* hang: limp, toes pointing down */
+            ud = u(rr(0.1, 0.4), -1, rr(-0.15, 0.2)); fd = u(rr(0.05, 0.3), -1, rr(0.0, 0.35)); td = u(rr(0.04, 0.14), -1, rr(-0.1, 0.2)); sd = u(rr(0.02, 0.12), -1, -rr(0.0, 0.25)); fx = -rr(0.6, 1.05);
+          }
+          aim(b.ua[i], ud); aim(b.fa[i], fd); aim(b.th[i], td); aim(b.sh[i], sd); b.ft[i].rotation.set(fx, 0, 0);
+        }
+        root.updateMatrixWorld(true);
+      }
+
+      function corpse(bx, by, bz, yaw, o) {
+        o = o || {}; const pose = o.pose || 'supine', outfit = o.out || pick(OUT), oi = Math.max(0, OUT.indexOf(outfit)), vi = o.burned ? 7 : pick(LOOKS[oi % LOOKS.length]);
+        const rig = SoldierModel.corpseRig(vi), b = rig.b, m = rig.m, fy = o.floorY !== undefined ? o.floorY : by;
+        const armOff = (i) => (i === 0 && o.noArmL) || (i === 1 && o.noArmR), legOff = (i) => o.noLegs || (i === 0 && o.noLegL) || (i === 1 && o.noLegR);
+        if (o.headless) m.head.visible = m.jaw.visible = m.eyes.visible = false;
+        for (let i = 0; i < 2; i++) { if (armOff(i)) m.ua[i].visible = m.fa[i].visible = false; if (legOff(i)) m.th[i].visible = m.sh[i].visible = m.ft[i].visible = false; }
+        poseRig(rig, pose, o);
+        meshBox(rigMeshes(rig), _bx); b.hips.getWorldPosition(_va);   /* hips sit over (bx, bz); the lowest point rests on the floor */
+        const holder = new THREE.Group(); holder.position.set(bx, 0, bz); holder.rotation.y = yaw; rig.root.position.set(-_va.x, by + 0.004 - _bx.min.y, -_va.z); holder.add(rig.root); holder.updateMatrixWorld(true);
+        const HM = b.head.matrixWorld, CM = b.chest.matrixWorld, SM = b.spine.matrixWorld;
+        /* wet blood soaking the clothes */
+        for (let i = 0, n = rnd(3) + 2; i < n; i++) flat(CM, v3(rr(-0.11, 0.11), rr(0.04, 0.26), -0.108), ZF, rr(0.05, 0.12), rr(0.05, 0.11), 0.012, pick([BDK, BLD, BDK]), true, SPH);
+        for (let i = 0, n = rnd(2) + 2; i < n; i++) flat(SM, v3(rr(-0.1, 0.1), rr(0.02, 0.15), -0.1), ZF, rr(0.05, 0.11), rr(0.05, 0.1), 0.012, pick([BDK, BLD]), true, SPH);
+        if (!o.headless && (o.faceBlood !== undefined ? o.faceBlood : R() < 0.75)) { flat(HM, v3(0.03, 0.11, -0.095), v3(0.1, -0.1, -1), 0.025, 0.07, 0.008, BLD, true, SPH); ball(HM, v3(-0.02, 0.062, -0.098), 0.05, 0.03, 0.02, BDK, true); }
+        /* head wounds */
+        if (!o.headless && o.chewed) {
+          ball(HM, v3(-0.05, 0.1, -0.082), 0.075, 0.085, 0.045, FLESH, true); ball(HM, v3(-0.054, 0.098, -0.093), 0.045, 0.055, 0.03, ORGAN, true); part(HM, BOX, v3(-0.06, 0.122, -0.092), [0, 0, 0.3], [0.05, 0.012, 0.01], BONE, false);
+          for (let i = 0; i < 5; i++) part(HM, BOX, v3(-0.085 + i * 0.0145, 0.075, -0.097), [0, 0, 0], [0.011, 0.017, 0.007], TEETH, false);
+        }
+        if (!o.headless && o.headshot) { const sd = R() < 0.5 ? -1 : 1; ball(HM, v3(sd * 0.085, 0.17, -0.01), 0.05, 0.1, 0.11, ORGAN, true); ball(HM, v3(sd * 0.09, 0.18, -0.03), 0.035, 0.07, 0.07, 0xb88282, true); ball(HM, v3(sd * 0.07, 0.2, 0.02), 0.05, 0.04, 0.05, BLD, true); }
+        if (o.headless) {   /* torn neck stump: wet ring, bone, hanging flesh */
+          part(CM, CYL, v3(0, 0.352, 0), [0, 0, 0], [0.105, 0.04, 0.105], BLD, true); part(CM, CYL, v3(0.006, 0.374, 0.004), [0, 0, 0], [0.03, 0.05, 0.03], BONE, false); ball(CM, v3(0.022, 0.366, -0.024), 0.05, 0.04, 0.04, ORGAN, true); ball(CM, v3(-0.025, 0.36, 0.02), 0.04, 0.035, 0.04, FLESH, true);
+          flat(CM, v3(0, 0.3, 0), Y, 0.18, 0.16, 0.02, BDK, true, SPH); b.head.getWorldPosition(_va); viscera(_va.x, fy, _va.z, 0.55, 6);
+        }
+        if (o.headshot && !o.headless) { b.head.getWorldPosition(_va); viscera(_va.x, fy, _va.z, 0.55, 6); }
+        /* torn open belly + entrails */
+        if (o.open) {
+          const c = v3(0, 0.085, -0.098);
+          flat(SM, c, ZF, 0.25, 0.26, 0.012, FLESH, true, SPH); flat(SM, c.clone().add(v3(0, 0, -0.008)), ZF, 0.19, 0.2, 0.04, ORGAN, true, SPH);
+          for (let i = 0; i < 7; i++) { const cc = c.clone().add(v3(rr(-0.07, 0.07), rr(-0.07, 0.07), -rr(0.02, 0.05))), r = rr(0.04, 0.075); ball(SM, cc, r * 1.5, r * 0.9, r * 1.2, pick([GUT, ORGAN, FLESH, 0x7a2a3a, 0xa8706a]), true, 0.2); }
+          for (const sd of [-1, 1]) flat(SM, c.clone().add(v3(sd * 0.15, 0, -0.012)), ZF, 0.05, 0.19, 0.014, outfit.top, false, BOX);
+          const bw = c.clone().applyMatrix4(SM), ang = rr(0, 6.28); guts(bw, v3(Math.cos(ang), 0, Math.sin(ang)), rr(0.9, 1.6), fy, 0.032); guts(bw, v3(Math.cos(ang + 0.7), 0, Math.sin(ang + 0.7)), rr(0.5, 1.0), fy, 0.026);
+        }
+        /* missing limbs: wet stump + bone at the joint */
+        for (let i = 0; i < 2; i++) {
+          if (armOff(i)) { const UA = b.ua[i].matrixWorld; ball(UA, v3(0, -0.025, 0), 0.13, 0.1, 0.13, BLD, true); ball(UA, v3(0, -0.05, 0), 0.05, 0.04, 0.05, BONE, false); ball(UA, v3(0.02, -0.045, -0.02), 0.06, 0.05, 0.05, ORGAN, true); }
+          if (legOff(i)) { const TH = b.th[i].matrixWorld; ball(TH, v3(0, -0.08, 0), 0.17, 0.08, 0.17, BLD, true); part(TH, CYL, v3(0, -0.09, 0), [0, 0, 0], [0.05, 0.05, 0.05], BONE, false); ball(TH, v3(0.02, -0.095, -0.03), 0.08, 0.06, 0.06, ORGAN, true); }
+        }
+        if (o.noLegs) { b.th[0].getWorldPosition(_va); const ang = rr(0, 6.28); guts(_va.clone(), v3(Math.cos(ang), 0, Math.sin(ang)), rr(0.8, 1.4), fy, 0.03); }
+        if (o.bone) { const i = rnd(2); if (!armOff(i)) { const FA = b.fa[i].matrixWorld, sd = i ? 1 : -1; seg(FA, v3(0, -0.12, -0.02), v3(sd * 0.03, -0.2, -0.065), 0.022, 0.022, CYL, BONE, false); ball(FA, v3(0, -0.14, -0.02), 0.09, 0.05, 0.09, BLD, true); } }
+        /* pool + flies */
+        b.chest.getWorldPosition(_va); const cw = _va.clone(), ps = o.pool !== undefined ? o.pool : rr(1.3, 2.2);
+        if (ps > 0) { pool(cw.x + rr(-0.15, 0.15), cw.z + rr(-0.15, 0.15), ps, fy); if (R() < 0.6) splat(cw.x + rr(-0.8, 0.8), cw.z + rr(-0.8, 0.8), rr(0.5, 0.9), fy); }
+        addFlies(cw.x, fy + 0.35, cw.z, 6);
+        freeze(holder); out.objs.push(holder);
+        return { w: cw };
+      }
+      function body(bx, by, bz, yaw, o) { return HAVE_RIG ? corpse(bx, by, bz, yaw, o) : bodyOld(bx, by, bz, yaw, o); }
+
+      /* a head on its own (lying on an ear / the counter) */
+      function severedHead(x, y, z, yaw, o) {
+        if (!HAVE_RIG) return severedHeadOld(x, y, z, yaw, o);
+        o = o || {}; const rig = SoldierModel.corpseRig(rnd(10)), b = rig.b, m = rig.m, parts = [m.head, m.jaw, m.eyes];
+        for (const mm of rigMeshes(rig)) if (parts.indexOf(mm) < 0) mm.visible = false;
+        rig.root.rotation.order = 'YXZ'; rig.root.rotation.set(rr(-0.5, 0.5), yaw + rr(-1, 1), (R() < 0.5 ? -1 : 1) * rr(1.2, 1.9)); b.jaw.rotation.x = -rr(0.3, 0.9); rig.root.updateMatrixWorld(true);
+        meshBox(parts, _bx); _bx.getCenter(_vb);
+        const holder = new THREE.Group(); holder.position.set(x, 0, z); rig.root.position.set(-_vb.x, y + 0.004 - _bx.min.y, -_vb.z); holder.add(rig.root); holder.updateMatrixWorld(true);
+        const HM = b.head.matrixWorld;
+        part(HM, CYL, v3(0, 0.03, 0.01), [0, 0, 0], [0.12, 0.05, 0.12], BLD, true); part(HM, CYL, v3(0.005, 0.02, 0.012), [0, 0, 0], [0.035, 0.06, 0.035], BONE, false); ball(HM, v3(0.03, 0.02, -0.01), 0.06, 0.04, 0.05, ORGAN, true); ball(HM, v3(-0.03, 0.025, 0.03), 0.05, 0.04, 0.05, FLESH, true);
+        flat(HM, v3(0.03, 0.11, -0.095), v3(0.1, -0.1, -1), 0.025, 0.07, 0.008, BLD, true, SPH);
+        if (o.chewed) { ball(HM, v3(-0.05, 0.1, -0.082), 0.075, 0.085, 0.045, FLESH, true); ball(HM, v3(-0.054, 0.098, -0.093), 0.045, 0.055, 0.03, ORGAN, true); }
+        if (o.floor !== false) { pool(x, z, 0.9, o.fy || 0); splat(x + 0.3, z - 0.2, 0.6, o.fy || 0); }
+        addFlies(x, (o.fy || 0) + 0.25, z, 4);
+        freeze(holder); out.objs.push(holder);
+      }
+
+      /* a torn-off arm or leg lying along local +x, stump at the origin */
+      function limbPiece(x, y, z, yaw, kind) {
+        if (!HAVE_RIG) return limbPieceOld(x, y, z, yaw, kind);
+        const rig = SoldierModel.corpseRig(rnd(10)), b = rig.b, m = rig.m, i = rnd(2), sd = i ? 1 : -1, arm = kind === 'arm', keep = arm ? [m.ua[i], m.fa[i]] : [m.th[i], m.sh[i], m.ft[i]];
+        for (const mm of rigMeshes(rig)) if (keep.indexOf(mm) < 0) mm.visible = false;
+        rig.root.rotation.set(0, 0, 0); rig.root.updateMatrixWorld(true);
+        if (arm) { aim(b.ua[i], v3(1, -0.12, 0.2 * sd)); aim(b.fa[i], v3(1, -0.08, -0.35 * sd)); } else { aim(b.th[i], v3(1, -0.08, 0.12 * sd)); aim(b.sh[i], v3(1, -0.05, -0.25 * sd)); b.ft[i].rotation.set(rr(-0.5, 0.2), rr(-0.4, 0.4), 0); }
+        rig.root.updateMatrixWorld(true); const org = arm ? b.ua[i] : b.th[i]; org.getWorldPosition(_vb); meshBox(keep, _bx);
+        const holder = new THREE.Group(); holder.position.set(x, 0, z); holder.rotation.y = yaw; rig.root.position.set(-_vb.x, y + 0.004 - _bx.min.y, -_vb.z); holder.add(rig.root); holder.updateMatrixWorld(true);
+        const OM = org.matrixWorld;
+        if (arm) { ball(OM, v3(0, -0.025, 0), 0.13, 0.1, 0.13, BLD, true); ball(OM, v3(0, -0.05, 0), 0.05, 0.04, 0.05, BONE, false); ball(OM, v3(0.02, -0.04, -0.02), 0.06, 0.05, 0.05, ORGAN, true); }
+        else { ball(OM, v3(0, -0.02, 0), 0.18, 0.12, 0.18, BLD, true); part(OM, CYL, v3(0, -0.04, 0), [0, 0, 0], [0.05, 0.06, 0.05], BONE, false); ball(OM, v3(0.025, -0.04, -0.03), 0.09, 0.07, 0.07, ORGAN, true); }
+        pool(x + 0.3, z, 1.0, y); addFlies(x + 0.4, y + 0.25, z, 3);
+        freeze(holder); out.objs.push(holder);
+      }
+
+      /* a real arm / lower leg poking out from under a sheet or body bag. anchor = the joint, in the sheet's local frame (x, y, z + yaw place it like the sheet) */
+      function sheetLimb(x, y, z, yaw, kind, anchor, d1, d2, i) {
+        const rig = SoldierModel.corpseRig(rnd(10)), b = rig.b, m = rig.m, arm = kind === 'arm', keep = arm ? [m.ua[i], m.fa[i]] : [m.sh[i], m.ft[i]];
+        for (const mm of rigMeshes(rig)) if (keep.indexOf(mm) < 0) mm.visible = false;
+        rig.root.rotation.set(0, 0, 0); rig.root.updateMatrixWorld(true);
+        if (arm) { aim(b.ua[i], d1); aim(b.fa[i], d2); } else { aim(b.sh[i], d1); b.ft[i].rotation.set(rr(-0.15, 0.3), rr(-0.3, 0.3), 0); }
+        rig.root.updateMatrixWorld(true); (arm ? b.ua[i] : b.sh[i]).getWorldPosition(_vb);
+        const holder = new THREE.Group(); holder.position.set(x, y, z); holder.rotation.y = yaw; rig.root.position.set(anchor.x - _vb.x, anchor.y - _vb.y, anchor.z - _vb.z); holder.add(rig.root); holder.updateMatrixWorld(true);
+        freeze(holder); out.objs.push(holder);
+      }
+
       /* ---------------------------------------------------------------- plastic-wrapped bodies hanging from the studio lamp grid (they sway) */
       const cocoons = [], plastic = new THREE.MeshStandardMaterial({ color: 0x9a9c8a, roughness: 0.3, metalness: 0, transparent: true, opacity: 0.93 }), wetMat = new THREE.MeshStandardMaterial({ color: 0x5a0a0c, roughness: 0.16 }), ropeMat = new THREE.MeshStandardMaterial({ color: 0x2a231c, roughness: 0.9 }), strapMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.6 }), paleMat = new THREE.MeshStandardMaterial({ color: 0xa8967f, roughness: 0.75 });
       const gCyl = new THREE.CylinderGeometry(0.5, 0.5, 1, 6), gCap = new THREE.CapsuleGeometry(0.2, 1.2, 4, 10), gTor = new THREE.TorusGeometry(0.205, 0.013, 6, 18), gSph = new THREE.SphereGeometry(0.5, 10, 7), gBox = new THREE.BoxGeometry(1, 1, 1);
-      function cocoon(x, z, topY, botY, ph) {
+      function cocoonOld(x, z, topY, botY, ph) {
         const g = new THREE.Group(); g.position.set(x, topY, z); const H = topY - botY, rope = H - 1.6, cy = -rope - 0.8;
         const add = (geo, mat, px, py, pz, sx, sy, sz, ry) => { const m = new THREE.Mesh(geo, mat); m.position.set(px, py, pz); m.scale.set(sx, sy, sz); if (ry) m.rotation.y = ry; g.add(m); return m; };
         add(gCyl, ropeMat, 0, -rope / 2, 0, 0.03, rope, 0.03); add(gCap, plastic, 0, cy, 0, 1, 1, 0.8);
@@ -15951,6 +16125,24 @@ const DeadAirMap = (function () {
         for (let k = 0; k < 11; k++) { const th = rr(0, 6.28); add(gSph, wetMat, 0.205 * Math.sin(th), cy + rr(-0.65, 0.65), 0.165 * Math.cos(th), 0.17 * rr(0.7, 1.4), 0.3 * rr(0.7, 1.4), 0.05, th); }
         const a = new THREE.Mesh(gCyl, paleMat); a.scale.set(0.085, 0.55, 0.085); a.position.set(0.24, cy - 0.28, 0.08); a.rotation.z = 0.12; g.add(a); add(gSph, paleMat, 0.28, cy - 0.58, 0.09, 0.1, 0.16, 0.06);
         add(gBox, paleMat, -0.05, cy - 0.84, 0.1, 0.1, 0.07, 0.22); add(gBox, paleMat, 0.07, cy - 0.85, 0.1, 0.1, 0.07, 0.22);
+        out.objs.push(g); cocoons.push({ g: g, ph: ph }); pool(x, z, 1.7, 0); splat(x + 0.5, z - 0.3, 0.8, 0); addDrip(x, botY, z, 0); addDrip(x + 0.12, botY + 0.1, z + 0.05, 0);
+      }
+
+      /* a corpse hanging from the lamp grid by a rope looped under the arms; head lolling, arms and legs limp, toes pointing down. The group pivots at the ceiling and sways in update(). */
+      const gLoop = new THREE.TorusGeometry(0.2, 0.014, 6, 20);
+      function cocoon(x, z, topY, botY, ph) {
+        if (!HAVE_RIG) return cocoonOld(x, z, topY, botY, ph);
+        const rig = SoldierModel.corpseRig(pick([0, 1, 3, 4, 5, 6, 8, 9])), b = rig.b, k = rig.k, g = new THREE.Group();
+        poseRig(rig, 'hang', {}); rig.root.rotation.y = rr(0, 6.28); rig.root.updateMatrixWorld(true);
+        meshBox(rigMeshes(rig), _bx); rig.root.position.set(0, (botY - topY) - _bx.min.y, 0); g.add(rig.root);
+        const loop = new THREE.Mesh(gLoop, ropeMat); loop.position.set(0, 0.2, 0); loop.rotation.x = PI / 2; loop.scale.set(k, 0.6, 1); b.chest.add(loop);
+        g.updateMatrixWorld(true);
+        const A1 = b.chest.localToWorld(v3(0.2 * k, 0.21, 0)), A2 = b.chest.localToWorld(v3(-0.2 * k, 0.21, 0)), P = b.chest.localToWorld(v3(0, 0.95, 0));
+        const rope = (a, c, r) => { const d = c.clone().sub(a), len = d.length(), mm = new THREE.Mesh(gCyl, ropeMat); mm.position.copy(a).addScaledVector(d, 0.5); mm.quaternion.setFromUnitVectors(Y, d.normalize()); mm.scale.set(r * 2, len, r * 2); g.add(mm); };
+        rope(A1, P, 0.014); rope(A2, P, 0.014); rope(P, v3(P.x, 0, P.z), 0.028);
+        const knot = new THREE.Mesh(gSph, ropeMat); knot.position.copy(P); knot.scale.setScalar(0.09); g.add(knot);
+        g.updateMatrixWorld(true); g.traverse((o) => { if (o !== g) o.matrixAutoUpdate = false; });
+        g.position.set(x, topY, z);
         out.objs.push(g); cocoons.push({ g: g, ph: ph }); pool(x, z, 1.7, 0); splat(x + 0.5, z - 0.3, 0.8, 0); addDrip(x, botY, z, 0); addDrip(x + 0.12, botY + 0.1, z + 0.05, 0);
       }
 
